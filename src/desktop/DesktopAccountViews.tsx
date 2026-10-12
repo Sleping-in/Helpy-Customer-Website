@@ -36,8 +36,8 @@ import {
   X,
 } from 'lucide-react'
 import type { Screen } from '../context/NavContext'
-import { useHelpyData } from '../context/HelpyDataContext'
-import { hasHelpyUserSession, helpyApi } from '../api/helpy'
+import { mapService, useHelpyData, type LiveAddress } from '../context/HelpyDataContext'
+import { hasHelpyUserSession, helpyApi, type HelpyService } from '../api/helpy'
 
 type Navigate = (screen: Screen, params?: any) => void
 
@@ -77,30 +77,13 @@ const favouriteProviders: any[] = []
 const transactions: any[] = []
 
 
-const legalSections = {
-  terms: [
-    ['1. Acceptance of terms', 'By creating an account or booking through Helpy, you agree to these Terms of Service and our Privacy Policy.'],
-    ['2. How Helpy works', 'Helpy connects customers with independent local service providers. We make discovery, booking and payments simpler, while providers remain responsible for delivering their services.'],
-    ['3. Your bookings', 'Please provide accurate booking, contact and location information. Some services may have provider-specific timing or cancellation requirements, shown before you confirm.'],
-    ['4. Payments & refunds', 'Payments are processed securely. Eligible refunds are handled in line with the relevant provider’s cancellation policy and the terms shown at checkout.'],
-    ['5. Respectful use', 'Treat providers, support staff and other users respectfully. Fraud, harassment, misuse of the platform or inaccurate account details may lead to account restrictions.'],
-    ['6. Questions about these terms', 'If something is unclear, our support team is ready to help before or after you make a booking.'],
-  ],
-  privacy: [
-    ['What we collect', 'We collect the account, contact, location and booking details needed to deliver a smooth service experience and keep the platform safe.'],
-    ['How we use your data', 'Your information helps us facilitate bookings, communicate updates, improve Helpy and prevent fraud or misuse.'],
-    ['When we share it', 'We share only the details a provider needs to fulfil your booking. We do not sell personal information to advertisers.'],
-    ['Your choices', 'You can update account details, communication preferences and saved addresses from your account. You may also ask us about access, correction or deletion.'],
-    ['Security', 'We use appropriate technical and organisational controls to protect your data. Payment details are handled through secure payment providers.'],
-    ['Contact our privacy team', 'For privacy questions or requests, contact support through the Help centre and select “Privacy & data”.'],
-  ],
-} as const
 
 /**
  * Desktop-only account pages. The surrounding desktop shell provides the global
  * header and footer; this component supplies a rich account rail and page body.
  */
 export default function DesktopAccountViews({ screen, navigate }: DesktopAccountViewsProps) {
+  if (!hasHelpyUserSession() && (screen === 'terms' || screen === 'privacy')) return <LegalView type={screen} navigate={navigate} />
   if (!hasHelpyUserSession()) return <div className="rounded-[28px] border border-blue-100 bg-white px-6 py-20 text-center"><span className="mx-auto grid h-16 w-16 place-items-center rounded-3xl bg-blue-50 text-[#0967ff]"><User size={28}/></span><h1 className="mt-5 text-3xl font-black text-[#0b1637]">Sign in to view your account</h1><p className="mt-2 text-sm font-medium text-slate-500">Your profile and notifications are private.</p><button onClick={() => navigate('login')} className="mt-6 rounded-xl bg-[#0967ff] px-6 py-3 text-sm font-black text-white">Sign in</button></div>
   const accountScreen: AccountScreen = isAccountScreen(screen) ? screen : 'profile'
   // Notifications are a global destination from the header, not a nested profile setting.
@@ -129,11 +112,17 @@ export default function DesktopAccountViews({ screen, navigate }: DesktopAccount
         </div>}
         <div data-account-layout className="mb-8 grid grid-cols-[204px_minmax(0,1fr)] items-start gap-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-7 xl:grid-cols-[240px_minmax(0,1fr)] xl:gap-8">
           <AccountRail active={accountScreen} navigate={navigate} />
-          <div className="min-w-0">{content}</div>
+          <div className="min-w-0"><AccountErrorBanner />{content}</div>
         </div>
         <AccountLegalFooter navigate={navigate} />
     </div>
   )
+}
+
+function AccountErrorBanner() {
+  const data = useHelpyData()
+  if (!data.accountError) return null
+  return <div role="alert" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800"><span>{data.accountError}</span><button onClick={() => void data.refreshAccount()} className="font-black text-[#0967ff]">Retry</button></div>
 }
 
 function isAccountScreen(screen: Screen): screen is AccountScreen {
@@ -297,7 +286,8 @@ function FavoritesView({ navigate }: { navigate: Navigate }) {
   const saved = data.favorites.map((value, index) => {
     const raw = asRecord(value)
     const id = textOf(raw, 'service_vendor_mapp_id', 'service_vendor_map_id', 'service_id', 'vendor_id', 'id')
-    const related = data.services.find(service => String(service.serviceVendorMapId) === id || String(service.serviceId) === id || String(service.vendorId) === id)
+    const setup = asRecord(raw.service_setup)
+    const related = data.services.find(service => String(service.serviceVendorMapId) === id) || (setup.service_vendor_mapp_id ? mapService(setup as HelpyService, data.categories) : undefined)
     const name = textOf(raw, 'service_name', 'name_english', 'name', 'vendor_name', 'provider_name') || related?.name
     const provider = related?.provider && related.provider !== data.profile?.name ? related.provider : ''
     const image = textOf(raw, 'service_image_url', 'image_url', 'image', 'vendor_profile_image_url') || related?.image
@@ -312,16 +302,24 @@ function FavoritesView({ navigate }: { navigate: Navigate }) {
 
 function AddressesView() {
   const data = useHelpyData()
+  const [editing, setEditing] = useState<LiveAddress | null>(null)
   const [adding, setAdding] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const remove = async (address: LiveAddress) => {
+    if (!window.confirm(`Delete "${address.title}" from your saved addresses?`)) return
+    setDeleting(address.id); setError('')
+    try { await data.deleteAddress(address.id) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to delete this address.') }
+    finally { setDeleting(null) }
+  }
   return <>
-    <PageHeading title="Saved addresses" icon={MapPin} action={<button onClick={() => setAdding(true)} className="inline-flex items-center gap-2 rounded-xl bg-[#0967ff] px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:bg-[#0759df]"><Plus size={17}/>Add location</button>} />
-    {saved && <div role="status" className="mb-5 flex items-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700"><CheckCircle2 size={17}/>Your location has been saved and is ready for bookings.</div>}
-    {data.accountLoading && !data.addresses.length ? <div className="rounded-[28px] border border-blue-100 bg-white px-6 py-16 text-center text-sm font-bold text-slate-500">Loading saved addresses…</div> : data.addresses.length ? <section className="grid gap-4">{data.addresses.map(address => { const raw = address.raw; const details = ['building', 'building_no', 'building_number', 'street', 'street_name', 'zone', 'zone_number', 'floor', 'flat', 'apartment', 'landmark', 'notes', 'city_name', 'state_name'].map(key => textOf(raw, key)).filter(Boolean); return <article key={address.id} className="flex gap-5 rounded-[24px] border border-blue-100 bg-white p-5 shadow-sm"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-blue-50 text-[#0967ff]"><MapPin size={22}/></span><div className="min-w-0"><h2 className="text-base font-black text-[#0b1637]">{address.title || 'Saved address'}</h2><p className="mt-1 text-sm font-bold text-slate-600">{address.address || 'Address details unavailable'}</p>{details.length > 0 && <p className="mt-2 text-sm leading-6 font-medium text-slate-500">{[...new Set(details)].join(' · ')}</p>}</div></article> })}</section> : <div className="rounded-[28px] border border-dashed border-blue-200 bg-white px-6 py-16 text-center"><MapPin className="mx-auto text-[#0967ff]" size={29}/><h2 className="mt-5 text-xl font-black text-[#0b1637]">No saved addresses yet</h2><p className="mt-2 text-sm font-medium text-slate-500">Add a location once and select it quickly during checkout.</p><button onClick={() => setAdding(true)} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0967ff] px-5 py-3 text-sm font-black text-white"><Plus size={16}/>Add your first location</button></div>}
-    {adding && <AddressLocationDialog
-      onClose={() => setAdding(false)}
-      onSaved={() => { setAdding(false); setSaved(true); window.setTimeout(() => setSaved(false), 3200) }}
-    />}
+    <PageHeading title="Saved addresses" icon={MapPin} action={<button onClick={() => setAdding(true)} className="inline-flex items-center gap-2 rounded-xl bg-[#0967ff] px-4 py-3 text-sm font-black text-white"><Plus size={17}/>Add location</button>} />
+    {saved && <p role="status" className="mb-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">Your location has been saved.</p>}
+    {error && <p role="alert" className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600">{error}</p>}
+    {data.accountLoading && !data.addresses.length ? <div className="rounded-[28px] border border-blue-100 bg-white px-6 py-16 text-center">Loading saved addresses…</div> : data.addresses.length ? <section className="grid gap-4">{data.addresses.map(address => <article key={address.id} className="flex items-start gap-4 rounded-[24px] border border-blue-100 bg-white p-5 shadow-sm"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-blue-50 text-[#0967ff]"><MapPin size={22}/></span><div className="min-w-0 flex-1"><h2 className="font-black text-[#0b1637]">{address.title}</h2><p className="mt-1 text-sm text-slate-600">{address.address || 'Address details unavailable'}</p></div><div className="flex gap-2"><button onClick={() => setEditing(address)} aria-label={`Edit ${address.title}`} className="rounded-xl p-2 text-[#0967ff] hover:bg-blue-50"><Edit3 size={18}/></button><button onClick={() => void remove(address)} disabled={deleting === address.id} aria-label={`Delete ${address.title}`} className="rounded-xl p-2 text-red-500 hover:bg-red-50 disabled:opacity-50"><Trash2 size={18}/></button></div></article>)}</section> : <div className="rounded-[28px] border border-dashed border-blue-200 bg-white px-6 py-16 text-center"><MapPin className="mx-auto text-[#0967ff]" size={29}/><h2 className="mt-5 text-xl font-black">No saved addresses yet</h2><button onClick={() => setAdding(true)} className="mt-5 rounded-xl bg-[#0967ff] px-5 py-3 text-sm font-black text-white">Add your first location</button></div>}
+    {(adding || editing) && <AddressLocationDialog initial={editing || undefined} onClose={() => { setAdding(false); setEditing(null) }} onSaved={() => { setAdding(false); setEditing(null); setSaved(true); window.setTimeout(() => setSaved(false), 3200) }} />}
   </>
 }
 
@@ -340,12 +338,21 @@ type LocationForm = {
   longitude?: number
 }
 
-const emptyLocationForm: LocationForm = { title: '', buildingNumber: '', zone: '', street: '', stateId: '', cityId: '', floor: '', apartment: '', landmark: '', notes: '' }
+const emptyLocationForm: LocationForm = { title: 'Other', buildingNumber: '', zone: '', street: '', stateId: '', cityId: '', floor: '', apartment: '', landmark: '', notes: '' }
 
-function AddressLocationDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function AddressLocationDialog({ initial, onClose, onSaved }: { initial?: LiveAddress; onClose: () => void; onSaved: () => void }) {
   const data = useHelpyData()
-  const [step, setStep] = useState<'map' | 'details'>('map')
-  const [form, setForm] = useState<LocationForm>(emptyLocationForm)
+  const [step, setStep] = useState<'map' | 'details'>(initial ? 'details' : 'map')
+  const [form, setForm] = useState<LocationForm>(() => initial ? {
+    title: initial.title === 'Saved address' ? 'Other' : initial.title,
+    buildingNumber: String(initial.raw.flat_or_building || ''),
+    zone: String(initial.raw.postal_code || ''),
+    street: String(initial.raw.locality_or_street || ''),
+    stateId: String(initial.stateId || ''), cityId: String(initial.cityId || ''),
+    floor: '', apartment: '', landmark: String(initial.raw.landmark || ''), notes: '',
+    latitude: Number(initial.raw.latitute || initial.raw.latitude) || undefined,
+    longitude: Number(initial.raw.longitude) || undefined,
+  } : emptyLocationForm)
   const [states, setStates] = useState<Array<{ id: number; name: string }>>([])
   const [cities, setCities] = useState<Array<{ id: number; name: string; latitude?: number; longitude?: number }>>([])
   const [loadingRegions, setLoadingRegions] = useState(true)
@@ -489,7 +496,7 @@ function AddressLocationDialog({ onClose, onSaved }: { onClose: () => void; onSa
     const address = [`Building ${form.buildingNumber.trim()}`, `Street ${form.street.trim()}`, `Zone ${form.zone.trim()}`, city, state].filter(Boolean).join(', ')
     setSaving(true); setError('')
     try {
-      await data.addAddress({ title: form.title.trim(), address, stateId: Number(form.stateId), cityId: Number(form.cityId), buildingNumber: form.buildingNumber.trim(), zone: form.zone.trim(), street: form.street.trim(), floor: form.floor.trim(), apartment: form.apartment.trim(), landmark: form.landmark.trim(), latitude: form.latitude, longitude: form.longitude, notes: form.notes.trim() })
+      await data.addAddress({ id: initial?.id, title: form.title.trim(), address, stateId: Number(form.stateId), cityId: Number(form.cityId), buildingNumber: form.buildingNumber.trim(), zone: form.zone.trim(), street: form.street.trim(), floor: form.floor.trim(), apartment: form.apartment.trim(), landmark: form.landmark.trim(), latitude: form.latitude, longitude: form.longitude, notes: form.notes.trim() })
       onSaved()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save this location.') }
     finally { setSaving(false) }
@@ -516,10 +523,10 @@ function AddressLocationDialog({ onClose, onSaved }: { onClose: () => void; onSa
             <button onClick={() => { setError(''); setStep('map') }} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white py-3 text-sm font-black text-[#0967ff]"><ArrowLeft size={16}/>Adjust map pin</button>
           </aside>
           <div className="p-5 sm:p-6">
-            <section><p className="text-xs font-black uppercase tracking-[.12em] text-slate-400">Save this place as</p><div className="mt-3 grid grid-cols-3 gap-3">{[{ label: 'Home', icon: Home }, { label: 'Work', icon: Building2 }, { label: 'Other', icon: MapPin }].map(({ label, icon: Icon }) => { const active = label === 'Other' ? !['Home', 'Work'].includes(form.title) : form.title === label; return <button key={label} onClick={() => update('title', label === 'Other' ? '' : label)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-black transition ${active ? 'border-[#0967ff] bg-blue-50 text-[#0967ff] ring-2 ring-blue-100' : 'border-slate-100 text-slate-500 hover:border-blue-200'}`}><Icon size={17}/>{label}</button> })}</div>{!['Home', 'Work'].includes(form.title) && <div className="mt-3"><LocationInput label="Custom title" value={form.title} onChange={value => update('title', value)} placeholder="Parents’ home, School, Gym…"/></div>}</section>
+            <section><p className="text-xs font-black uppercase tracking-[.12em] text-slate-400">Save this place as</p><div className="mt-3 grid grid-cols-3 gap-3">{[{ label: 'Home', icon: Home }, { label: 'Work', icon: Building2 }, { label: 'Other', icon: MapPin }].map(({ label, icon: Icon }) => { const active = label === 'Other' ? !['Home', 'Work'].includes(form.title) : form.title === label; return <button key={label} onClick={() => update('title', label)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-black transition ${active ? 'border-[#0967ff] bg-blue-50 text-[#0967ff] ring-2 ring-blue-100' : 'border-slate-100 text-slate-500 hover:border-blue-200'}`}><Icon size={17}/>{label}</button> })}</div></section>
             <section className="mt-5 overflow-hidden rounded-2xl border border-blue-100"><div className="flex items-center justify-between bg-[#0967ff] px-4 py-3 text-white"><div><p className="text-[10px] font-black uppercase tracking-[.15em] text-blue-100">Qatar address plate</p><p className="mt-0.5 text-sm font-black">Building · Street · Zone</p></div><span className="rounded-lg bg-white/15 px-2.5 py-1 text-[10px] font-black">Required</span></div><div className="grid gap-4 p-4 sm:grid-cols-3"><LocationInput label="Building" value={form.buildingNumber} onChange={value => update('buildingNumber', value.replace(/[^\dA-Za-z-]/g, ''))} placeholder="24" inputMode="text"/><LocationInput label="Street" value={form.street} onChange={value => update('street', value.replace(/\D/g, '').slice(0, 4))} placeholder="950" inputMode="numeric"/><LocationInput label="Zone" value={form.zone} onChange={value => update('zone', value.replace(/\D/g, '').slice(0, 3))} placeholder="66" inputMode="numeric"/></div></section>
             <div className="mt-5 grid gap-4 sm:grid-cols-2"><label><span className="mb-2 block text-xs font-black text-slate-600">Municipality</span><select value={form.stateId} onChange={event => setForm(current => ({ ...current, stateId: event.target.value, cityId: '' }))} disabled={loadingRegions} className="h-12 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 text-sm font-bold text-slate-700 outline-none focus:border-[#0967ff] focus:ring-2 focus:ring-blue-100"><option value="">{loadingRegions ? 'Loading municipalities…' : 'Select municipality'}</option>{states.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span className="mb-2 block text-xs font-black text-slate-600">Area</span><select value={form.cityId} onChange={event => update('cityId', event.target.value)} disabled={!form.stateId || loadingCities} className="h-12 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 text-sm font-bold text-slate-700 outline-none focus:border-[#0967ff] focus:ring-2 focus:ring-blue-100"><option value="">{loadingCities ? 'Loading areas…' : 'Select area'}</option>{cities.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
-            <details className="group mt-5 rounded-2xl border border-slate-100 bg-slate-50"><summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-black text-slate-600">Additional arrival details <ChevronRight size={17} className="transition group-open:rotate-90"/></summary><div className="grid gap-4 border-t border-slate-100 p-4 sm:grid-cols-2"><LocationInput label="Floor" value={form.floor} onChange={value => update('floor', value)} placeholder="e.g. 3"/><LocationInput label="Apartment / unit" value={form.apartment} onChange={value => update('apartment', value)} placeholder="e.g. 12B"/><LocationInput label="Nearby landmark" value={form.landmark} onChange={value => update('landmark', value)} placeholder="Opposite the metro station" className="sm:col-span-2"/><LocationInput label="Provider instructions" value={form.notes} onChange={value => update('notes', value)} placeholder="Gate, parking or access instructions" className="sm:col-span-2"/></div></details>
+            <div className="mt-5"><LocationInput label="Nearby landmark" value={form.landmark} onChange={value => update('landmark', value)} placeholder="Opposite the metro station"/></div>
             {error && <div role="alert" className="mt-4 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-600">{error}</div>}
           </div>
         </div>
@@ -604,24 +611,58 @@ function NotificationsView({ navigate }: { navigate: Navigate }) {
 }
 
 function ContactView({ navigate }: { navigate: Navigate }) {
+  const data = useHelpyData()
   const [subject, setSubject] = useState('Booking help')
   const [message, setMessage] = useState('')
   const [sent, setSent] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const submit = async () => {
+    if (!data.profile?.name || !data.profile.email || !message.trim()) { setError('Load your profile and enter a message before sending.'); return }
+    setSubmitting(true); setError('')
+    try {
+      await helpyApi.sendContactMessage({ name: data.profile.name, email: data.profile.email, phoneNumber: data.profile.phone, message: `${subject}: ${message.trim()}` })
+      setSent(true)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to send your message.') }
+    finally { setSubmitting(false) }
+  }
   return <>
-    <PageHeading eyebrow="We are here for you" title="How can we help?" description="Get fast answers, chat with our support team or send us the details and we’ll follow up." action={<button onClick={() => navigate('chat-thread', { name: 'Helpy Support', providerBg: 'bg-brand-500', providerEmoji: 'HS' })} className="inline-flex items-center gap-2 rounded-xl bg-[#0967ff] px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:bg-[#0759df]"><MessageCircle size={17} />Chat with us</button>} />
-    <section className="grid gap-4 md:grid-cols-3"><button onClick={() => navigate('chat-thread', { name: 'Helpy Support', providerBg: 'bg-brand-500', providerEmoji: 'HS' })} className="group rounded-[24px] border border-blue-100 bg-white p-5 text-left shadow-sm transition"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-50 text-[#0967ff]"><MessageCircle size={20} /></span><h2 className="mt-5 text-base font-black text-[#0b1637]">Live chat</h2><p className="mt-1 text-sm leading-6 font-medium text-slate-500">The quickest route for booking questions.</p><span className="mt-4 inline-flex items-center gap-1 text-sm font-black text-[#0967ff]">Start chat <ArrowRight size={14} /></span></button><a href="tel:+97452055553" className="group rounded-[24px] border border-blue-100 bg-white p-5 shadow-sm transition"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-600"><Phone size={20} /></span><h2 className="mt-5 text-base font-black text-[#0b1637]">Call Helpy</h2><p className="mt-1 text-sm leading-6 font-medium text-slate-500">+974 5205 5553<br />Sun–Thu, 10 AM–4 PM</p><span className="mt-4 inline-flex items-center gap-1 text-sm font-black text-[#0967ff]">Call now <ArrowRight size={14} /></span></a><a href="mailto:helpyapp.tech@gmail.com" className="group rounded-[24px] border border-blue-100 bg-white p-5 shadow-sm transition"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-50 text-violet-600"><Mail size={20} /></span><h2 className="mt-5 text-base font-black text-[#0b1637]">Email us</h2><p className="mt-1 text-sm leading-6 font-medium text-slate-500">helpyapp.tech@gmail.com<br />We reply within one business day.</p><span className="mt-4 inline-flex items-center gap-1 text-sm font-black text-[#0967ff]">Write email <ArrowRight size={14} /></span></a></section>
-    <section className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]"><div className="rounded-[28px] border border-blue-100 bg-white p-6 shadow-sm sm:p-7"><h2 className="text-xl font-black text-[#0b1637]">Send a message</h2><p className="mt-1 text-sm leading-6 font-medium text-slate-500">Tell us a little about what you need. Including a booking reference helps us respond faster.</p>{sent ? <div className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50 p-6 text-center"><span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-white text-emerald-600 shadow-sm"><CheckCircle2 size={24} /></span><h3 className="mt-4 text-lg font-black text-emerald-800">Your message is on its way</h3><p className="mt-1 text-sm font-semibold text-emerald-700">We’ll get back to you within one business day.</p><button onClick={() => { setSent(false); setMessage('') }} className="mt-4 text-sm font-black text-[#0967ff]">Send another message</button></div> : <><div className="mt-6"><label className="text-xs font-black text-slate-600">Topic</label><select value={subject} onChange={event => setSubject(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 text-sm font-bold text-slate-700 outline-none focus:border-[#0967ff] focus:ring-2 focus:ring-blue-100"><option>Booking help</option><option>Payment or wallet</option><option>Provider feedback</option><option>Privacy & data</option><option>Something else</option></select></div><div className="mt-4"><label className="text-xs font-black text-slate-600">Message</label><textarea value={message} onChange={event => setMessage(event.target.value)} rows={5} placeholder="Describe your question or issue…" className="mt-2 w-full resize-none rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#0967ff] focus:ring-2 focus:ring-blue-100" /></div><button onClick={() => setSent(true)} disabled={!message.trim()} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0967ff] px-5 py-3.5 text-sm font-black text-white transition hover:bg-[#0759df] disabled:cursor-not-allowed disabled:opacity-50"><Send size={16} />Send message</button></>}</div><div className="rounded-[28px] border border-blue-100 bg-[#0b63e6] p-6 text-white shadow-lg shadow-blue-100"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-white/15"><Sparkles size={20} /></span><h2 className="mt-5 text-xl font-black">A smoother service, every time.</h2><p className="mt-3 text-sm leading-6 font-semibold text-blue-100">Need to change a booking? The fastest option is often to message your provider directly from your order.</p><button onClick={() => navigate('orders')} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-[#0967ff] transition">View my bookings <ArrowRight size={15} /></button></div></section>
+    <PageHeading eyebrow="We are here for you" title="How can we help?" description="Send a support request or view your provider conversations." action={<button onClick={() => navigate('chat')} className="inline-flex items-center gap-2 rounded-xl bg-[#0967ff] px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:bg-[#0759df]"><MessageCircle size={17} />Your messages</button>} />
+    <section className="grid gap-4 md:grid-cols-3"><button onClick={() => navigate('chat')} className="group rounded-[24px] border border-blue-100 bg-white p-5 text-left shadow-sm transition"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-50 text-[#0967ff]"><MessageCircle size={20} /></span><h2 className="mt-5 text-base font-black text-[#0b1637]">Provider messages</h2><p className="mt-1 text-sm leading-6 font-medium text-slate-500">View conversations with your service providers.</p><span className="mt-4 inline-flex items-center gap-1 text-sm font-black text-[#0967ff]">Open messages <ArrowRight size={14} /></span></button><a href="tel:+97452055553" className="group rounded-[24px] border border-blue-100 bg-white p-5 shadow-sm transition"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-600"><Phone size={20} /></span><h2 className="mt-5 text-base font-black text-[#0b1637]">Call Helpy</h2><p className="mt-1 text-sm leading-6 font-medium text-slate-500">+974 5205 5553<br />Sun–Thu, 10 AM–4 PM</p><span className="mt-4 inline-flex items-center gap-1 text-sm font-black text-[#0967ff]">Call now <ArrowRight size={14} /></span></a><a href="mailto:helpyapp.tech@gmail.com" className="group rounded-[24px] border border-blue-100 bg-white p-5 shadow-sm transition"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-50 text-violet-600"><Mail size={20} /></span><h2 className="mt-5 text-base font-black text-[#0b1637]">Email us</h2><p className="mt-1 text-sm leading-6 font-medium text-slate-500">helpyapp.tech@gmail.com<br />Send us an email.</p><span className="mt-4 inline-flex items-center gap-1 text-sm font-black text-[#0967ff]">Write email <ArrowRight size={14} /></span></a></section>
+    <section className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]"><div className="rounded-[28px] border border-blue-100 bg-white p-6 shadow-sm sm:p-7"><h2 className="text-xl font-black text-[#0b1637]">Send a message</h2><p className="mt-1 text-sm leading-6 font-medium text-slate-500">Tell us a little about what you need. Including a booking reference helps us respond faster.</p>{sent ? <div className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50 p-6 text-center"><span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-white text-emerald-600 shadow-sm"><CheckCircle2 size={24} /></span><h3 className="mt-4 text-lg font-black text-emerald-800">Your message was submitted</h3><p className="mt-1 text-sm font-semibold text-emerald-700">Helpy support has received your request.</p><button onClick={() => { setSent(false); setMessage('') }} className="mt-4 text-sm font-black text-[#0967ff]">Send another message</button></div> : <><div className="mt-6"><label className="text-xs font-black text-slate-600">Topic</label><select value={subject} onChange={event => setSubject(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 text-sm font-bold text-slate-700 outline-none focus:border-[#0967ff] focus:ring-2 focus:ring-blue-100"><option>Booking help</option><option>Payment or wallet</option><option>Provider feedback</option><option>Privacy & data</option><option>Something else</option></select></div><div className="mt-4"><label className="text-xs font-black text-slate-600">Message</label><textarea value={message} onChange={event => setMessage(event.target.value)} rows={5} placeholder="Describe your question or issue…" className="mt-2 w-full resize-none rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#0967ff] focus:ring-2 focus:ring-blue-100" /></div><button onClick={() => void submit()} disabled={!message.trim() || submitting || !data.profile?.email} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0967ff] px-5 py-3.5 text-sm font-black text-white transition hover:bg-[#0759df] disabled:cursor-not-allowed disabled:opacity-50"><Send size={16} />{submitting ? 'Sending…' : 'Send message'}</button>{error && <p role="alert" className="mt-3 text-sm font-bold text-red-600">{error}</p>}</>}</div><div className="rounded-[28px] border border-blue-100 bg-[#0b63e6] p-6 text-white shadow-lg shadow-blue-100"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-white/15"><Sparkles size={20} /></span><h2 className="mt-5 text-xl font-black">A smoother service, every time.</h2><p className="mt-3 text-sm leading-6 font-semibold text-blue-100">Need to change a booking? The fastest option is often to message your provider directly from your order.</p><button onClick={() => navigate('orders')} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-[#0967ff] transition">View my bookings <ArrowRight size={15} /></button></div></section>
   </>
 }
 
 function LegalView({ type, navigate }: { type: 'terms' | 'privacy'; navigate: Navigate }) {
-  const [active, setActive] = useState(0)
-  const sections = legalSections[type]
+  const [url, setUrl] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
   const title = type === 'terms' ? 'Terms of service' : 'Privacy & your data'
-  const description = type === 'terms' ? 'A plain-language guide to using Helpy, booking trusted providers and resolving questions.' : 'A clear overview of how we handle your information while helping you book with confidence.'
+  useEffect(() => {
+    let active = true
+    setLoading(true); setError(''); setUrl('')
+    void helpyApi.getPolicy()
+      .then(policies => {
+        if (!active) return
+        const candidate = policies[type === 'terms' ? 'customer-terms-of-service' : 'customer-privacy-policy']
+        if (!candidate) throw new Error('Helpy did not return a policy link.')
+        const base = new URL(String(import.meta.env.VITE_HELPY_API_BASE || 'https://admin.helpyapp.tech/api/v1')).origin
+        const resolved = new URL(candidate, `${base}/`)
+        if (resolved.protocol !== 'https:') throw new Error('Helpy did not return a secure policy link.')
+        setUrl(resolved.href)
+      })
+      .catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'Unable to load the policy link.') })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [type])
   return <>
-    <PageHeading eyebrow={type === 'terms' ? 'Legal information' : 'Privacy centre'} title={title} description={description} action={<button onClick={() => navigate('contact-us')} className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-black text-[#0967ff] transition hover:bg-blue-50"><MessageCircle size={16} />Ask a question</button>} />
-    <section className="grid items-start gap-6 2xl:grid-cols-[260px_minmax(0,1fr)]"><aside className="rounded-[24px] border border-blue-100 bg-white p-3 shadow-sm 2xl:sticky 2xl:top-24"><p className="px-3 pb-2 pt-1 text-[10px] font-black uppercase tracking-[.16em] text-slate-400">On this page</p><div className="space-y-1">{sections.map(([heading], index) => <button key={heading} onClick={() => setActive(index)} className={`flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-bold transition ${active === index ? 'bg-blue-50 text-[#0967ff]' : 'text-slate-600 hover:bg-slate-50'}`}><span className={`h-1.5 w-1.5 rounded-full ${active === index ? 'bg-[#0967ff]' : 'bg-slate-300'}`} />{heading.replace(/^\d+\.\s/, '')}</button>)}</div></aside><article className="rounded-[28px] border border-blue-100 bg-white p-6 shadow-sm sm:p-8"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-5"><div><p className="text-sm font-black text-[#0b1637]">Helpy {type === 'terms' ? 'Terms of Service' : 'Privacy Policy'}</p><p className="mt-1 text-xs font-semibold text-slate-500">Last updated May 2024</p></div><span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-600"><ShieldCheck size={14} />Easy to understand</span></div><div className="mt-7 space-y-7">{sections.map(([heading, body], index) => <section key={heading} className={`scroll-mt-28 rounded-2xl p-1 transition ${active === index ? 'bg-blue-50/60' : ''}`}><div className="p-4"><h2 className="text-lg font-black tracking-tight text-[#0b1637]">{heading}</h2><p className="mt-3 max-w-3xl text-sm leading-7 font-medium text-slate-600">{body}</p></div></section>)}</div><div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-[#f7faff] p-5"><div><p className="text-sm font-black text-[#0b1637]">Need a hand with this?</p><p className="mt-1 text-xs font-semibold text-slate-500">Our support team can clarify an account, booking or privacy question.</p></div><button onClick={() => navigate('contact-us')} className="rounded-xl bg-[#0967ff] px-4 py-3 text-sm font-black text-white">Contact support</button></div></article></section>
+    <PageHeading title={title} action={<button onClick={() => navigate('contact-us')} className="rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-black text-[#0967ff]">Ask a question</button>} />
+    <section className="mt-6 rounded-[28px] border border-blue-100 bg-white p-6 shadow-sm sm:p-8">
+      <p className="text-sm leading-6 text-slate-600">View the current {title.toLowerCase()} published by Helpy.</p>
+      {loading && <p role="status" className="mt-5 text-sm font-semibold text-slate-500">Loading the official policy link…</p>}
+      {error && <p role="alert" className="mt-5 text-sm font-semibold text-red-600">{error}</p>}
+      {url && <a href={url} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0967ff] px-5 py-3 text-sm font-black text-white">Open official {title.toLowerCase()} <ArrowRight size={16}/></a>}
+    </section>
   </>
 }
 

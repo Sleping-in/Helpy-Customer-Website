@@ -89,7 +89,7 @@ const ACCOUNT_ITEMS: Array<{ screen: Screen; label: string; icon: typeof UserRou
 
 export default function DesktopWebsite() {
   const { screen, params, navigate, goBack, canGoBack, login } = useNav()
-  const topLevelScreens: Screen[] = ['home', 'all-services', 'providers', 'deals', 'orders', 'chat', 'profile', 'notifications', 'wallet', 'favorites', 'addresses']
+  const topLevelScreens: Screen[] = ['home', 'all-services', 'providers', 'deals', 'orders', 'order-detail', 'chat', 'profile', 'notifications', 'wallet', 'favorites', 'addresses']
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -189,7 +189,7 @@ function DesktopRoute({ screen, params, navigate }: { screen: Screen; params: an
     case 'service-detail': return <LiveDesktopService params={params} navigate={navigate} />
     case 'booking-checkout': case 'glow-checkout': case 'booking-confirm': return <LiveDesktopCheckout params={params} navigate={navigate} />
     case 'booking-success': return <LiveBackendView screen={screen} params={params} navigate={navigate} />
-    case 'orders': case 'order-detail': return <LiveDesktopBookings params={params} navigate={navigate} />
+    case 'orders': case 'order-detail': return <LiveDesktopBookings screen={screen} params={params} navigate={navigate} />
     case 'chat': case 'chat-thread': return <LiveMessages params={params} navigate={navigate} />
     case 'location': return <DesktopAccountViews screen="addresses" navigate={navigate} />
     case 'reviews': return <LiveBackendView screen={screen} params={params} navigate={navigate} />

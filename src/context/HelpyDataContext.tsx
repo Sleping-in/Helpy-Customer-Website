@@ -18,7 +18,13 @@ export type LiveProvider = { id: number; name: string; image: string; rating: nu
 export type LiveBusiness = { id: number; name: string; image: string; rating: number; about: string; services: LiveService[]; raw: Record<string, unknown> }
 export type LiveProfile = { name: string; email: string; phone: string; about: string; image: string; memberSince: string; wallet: number; raw: Record<string, unknown> }
 export type LiveAddress = { id: string; title: string; address: string; stateId: number; cityId: number; raw: Record<string, unknown> }
-export type LiveBooking = { id: string; service: string; provider: string; date: string; time: string; price: number; status: string; image: string; address: string; raw: Record<string, unknown> }
+export type LiveBooking = {
+  id: string; reference: string; service: string; provider: string; category: string
+  date: string; time: string; price: number; subtotal: number; discount: number
+  status: string; paymentStatus: string; paymentMethod: string
+  image: string; address: string; requirements: string; createdAt: string
+  items: Array<{ name: string; price: number }>; raw: Record<string, unknown>
+}
 
 const categoryImageOverrides: Record<number, string> = {
   1: '/assets/ai-homecat-home_services.png',
@@ -104,8 +110,8 @@ function mapAddress(value: unknown): LiveAddress {
 
 export function mapBooking(value: unknown, status: string): LiveBooking {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  const bookingItems = Array.isArray(raw.booking_items) ? raw.booking_items : []
-  const firstItem = bookingItems[0] && typeof bookingItems[0] === 'object' ? bookingItems[0] as Record<string, unknown> : {}
+  const bookingItems = Array.isArray(raw.booking_items) ? raw.booking_items.map(item => item && typeof item === 'object' ? item as Record<string, unknown> : {}) : []
+  const firstItem = bookingItems[0] || {}
   const objectAt = (...keys: string[]) => { const found = pick(raw, ...keys); return found && typeof found === 'object' ? found as Record<string, unknown> : {} }
   const nestedSetup = firstItem.service_setup && typeof firstItem.service_setup === 'object' ? firstItem.service_setup as Record<string, unknown> : {}
   const setup = Object.keys(nestedSetup).length ? nestedSetup : objectAt('service_setup', 'service_vendor_map', 'service_vendor_mapp', 'service_details')
@@ -113,29 +119,56 @@ export function mapBooking(value: unknown, status: string): LiveBooking {
   const service = Object.keys(nestedService).length ? nestedService : (Object.keys(objectAt('service')).length ? objectAt('service') : (setup.service && typeof setup.service === 'object' ? setup.service as Record<string, unknown> : setup))
   const nestedVendor = setup.created_by && typeof setup.created_by === 'object' ? setup.created_by as Record<string, unknown> : {}
   const vendor = Object.keys(nestedVendor).length ? nestedVendor : objectAt('vendor', 'provider', 'created_by')
-  const address = objectAt('booking_address', 'user_address', 'address_data')
+  const details = objectAt('booking_detail', 'booking_details')
+  const address = objectAt('booking_address', 'address_data')
   const payment = objectAt('payment', 'payment_details')
   const imageList = Array.isArray(setup.all_service_images) ? setup.all_service_images : []
+  const scheduled = text(pick(raw, 'booking_date_time', 'selected_date', 'booking_date', 'date') || pick(details, 'booking_date_time')).trim()
+  const end = text(pick(raw, 'booking_end_datetime')).trim()
+  const date = /^\d{4}-\d{2}-\d{2}/.exec(scheduled)?.[0] || ''
+  const clock = (input: string) => {
+    if (/\b(?:AM|PM)\b/i.test(input)) return input.replace(/^0(\d:)/, '$1')
+    const match = /(?:^|[ T])(\d{1,2}):(\d{2})/.exec(input)
+    if (!match) return input || ''
+    const hour = Number(match[1])
+    return `${hour % 12 || 12}:${match[2]} ${hour >= 12 ? 'PM' : 'AM'}`
+  }
+  const startTime = clock(scheduled)
+  const endTime = clock(end)
+  const statusMap: Record<string, string> = { '0': 'Upcoming', '1': 'In progress', '2': 'Completed', '3': 'Cancelled', '4': 'Rejected', '5': 'Awaiting payment' }
+  const statusCode = text(raw.booking_status)
+  const itemRows = bookingItems.map(item => ({ name: text(pick(item, 'service_name', 'name'), 'Service'), price: number(pick(item, 'final_price', 'total_price')) }))
   return {
-    id: text(pick(raw, 'id', 'order_id', 'booking_id'), crypto.randomUUID()),
+    id: text(pick(raw, 'booking_id', 'id', 'order_id'), crypto.randomUUID()),
+    reference: text(pick(raw, 'unique_booking_id', 'booking_id', 'id')),
     service: text(pick(firstItem, 'service_name', 'name') || pick(raw, 'service_name') || pick(service, 'name_english', 'name', 'service_name') || pick(setup, 'name_english', 'name'), 'Booked service'),
     provider: text(pick(firstItem, 'provider_name', 'vendor_name') || pick(raw, 'vendor_name', 'provider_name', 'created_by_name') || pick(vendor, 'name_english', 'name'), 'Service provider'),
-    date: text(pick(raw, 'selected_date', 'booking_date', 'date', 'service_date', 'scheduled_date')),
-    time: text(pick(raw, 'selected_time', 'booking_time', 'time', 'slot', 'booking_slot')),
-    price: number(pick(raw, 'total_amount', 'total_price', 'payable_amount', 'price', 'amount') || pick(firstItem, 'final_price', 'total_price') || pick(payment, 'total_amount', 'amount')),
-    status: text(pick(raw, 'status_text', 'booking_status_text', 'order_status_text'), status),
+    category: text(pick(firstItem, 'category_name')),
+    date,
+    time: [startTime, endTime].filter(Boolean).join(' – '),
+    price: number(pick(raw, 'final_price', 'total_price', 'total_amount', 'amount') ?? pick(firstItem, 'final_price', 'total_price') ?? pick(payment, 'amount')),
+    subtotal: number(pick(raw, 'total_price')),
+    discount: number(pick(raw, 'discount_amount')),
+    status: statusMap[statusCode] || text(pick(raw, 'booking_status_text', 'status_text'), status),
+    paymentStatus: text(pick(raw, 'payment_status') || pick(payment, 'payment_status', 'status')),
+    paymentMethod: text(pick(raw, 'payment_type') || pick(payment, 'payment_method')),
     image: text(pick(raw, 'service_image', 'service_setup_image_url', 'image_url') || pick(setup, 'service_image_url', 'image_url') || imageList[0]),
-    address: text(pick(raw, 'service_address', 'address_english') || pick(address, 'address_english', 'address_en', 'address', 'full_address')),
+    address: text(pick(raw, 'user_address', 'service_address', 'address_english') || pick(details, 'booking_address', 'location') || pick(address, 'address_english', 'address_en', 'address', 'full_address')),
+    requirements: text(pick(details, 'requirements')),
+    createdAt: text(pick(raw, 'created_at_formatted', 'created_at')),
+    items: itemRows,
     raw,
   }
 }
 
 type DataContext = {
-  loading: boolean; accountLoading: boolean; error: string; banners: LiveBanner[]; categories: LiveCategory[]; services: LiveService[]; featured: LiveService[]; providers: LiveProvider[]; businesses: LiveBusiness[]
+  loading: boolean; accountLoading: boolean; error: string; accountError: string; banners: LiveBanner[]; categories: LiveCategory[]; services: LiveService[]; featured: LiveService[]; providers: LiveProvider[]; businesses: LiveBusiness[]
   profile: LiveProfile | null; addresses: LiveAddress[]; bookings: LiveBooking[]; favorites: unknown[]; walletHistory: unknown[]; notifications: unknown[]
-  refreshCatalog: () => Promise<void>; refreshAccount: () => Promise<void>; getAvailability: (vendorId: number, date: string) => Promise<HelpyAvailabilitySlot[]>
+  refreshCatalog: () => Promise<void>; refreshAccount: () => Promise<void>; getAvailability: (vendorId: number, date: string, serviceVendorMapId?: number) => Promise<HelpyAvailabilitySlot[]>
   updateProfile: (input: { name: string; email: string; phoneNumber: string; aboutMe?: string }) => Promise<void>
   addAddress: (input: HelpyAddressInput) => Promise<void>
+  deleteAddress: (id: string) => Promise<void>
+  toggleFavorite: (service: LiveService) => Promise<void>
 }
 
 const Context = createContext<DataContext>(null as never)
@@ -145,6 +178,7 @@ export function HelpyDataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [accountLoading, setAccountLoading] = useState(false)
   const [error, setError] = useState('')
+  const [accountError, setAccountError] = useState('')
   const [banners, setBanners] = useState<LiveBanner[]>([])
   const [categories, setCategories] = useState<LiveCategory[]>([])
   const [services, setServices] = useState<LiveService[]>([])
@@ -200,18 +234,29 @@ export function HelpyDataProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshAccount = useCallback(async () => {
-    if (!hasHelpyUserSession()) { setProfile(null); setAddresses([]); setBookings([]); return }
-    setAccountLoading(true)
+    if (!hasHelpyUserSession()) { setProfile(null); setAddresses([]); setBookings([]); setFavorites([]); setWalletHistory([]); setNotifications([]); setAccountError(''); return }
+    setAccountLoading(true); setAccountError('')
     try {
-      const [profileRaw, addressRows, active, progress, completed, favoriteRows, walletRows, notificationRows] = await Promise.all([
-        helpyApi.getUserProfile(), helpyApi.getAddresses(), helpyApi.getBookings(0), helpyApi.getBookings(1), helpyApi.getBookings(2), helpyApi.getFavorites(), helpyApi.getWalletHistory(), helpyApi.getNotifications(),
+      const [profileResult, addressResult, bookingResult, favoriteResult, walletResult, notificationResult] = await Promise.allSettled([
+        helpyApi.getUserProfile(), helpyApi.getAddresses(), helpyApi.getBookings(), helpyApi.getFavorites(), helpyApi.getWalletHistory(), helpyApi.getNotifications(),
       ])
-      const wallet = profileRaw.wallet && typeof profileRaw.wallet === 'object' ? profileRaw.wallet as Record<string, unknown> : {}
-      setProfile({ name: text(pick(profileRaw, 'name_english', 'name')), email: text(profileRaw.email), phone: text(profileRaw.phone_number), about: text(pick(profileRaw, 'about_me_english', 'about_me')), image: text(pick(profileRaw, 'user_profile_image_url', 'profile_photo')), memberSince: text(pick(profileRaw, 'member_since', 'created_at_formatted')), wallet: number(pick(wallet, 'balance', 'wallet_balance', 'amount') ?? profileRaw.wallet), raw: profileRaw })
-      setAddresses(addressRows.map(mapAddress))
-      setBookings([...active.map(row => mapBooking(row, 'Confirmed')), ...progress.map(row => mapBooking(row, 'In progress')), ...completed.map(row => mapBooking(row, 'Completed'))])
-      setFavorites(favoriteRows); setWalletHistory(walletRows); setNotifications(notificationRows)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to load account data.') }
+      const rows = (result: PromiseSettledResult<unknown[]>) => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
+      if (profileResult.status === 'fulfilled') {
+        const profileRaw = profileResult.value
+        const wallet = profileRaw.wallet && typeof profileRaw.wallet === 'object' ? profileRaw.wallet as Record<string, unknown> : {}
+        setProfile({ name: text(pick(profileRaw, 'name_english', 'name')), email: text(profileRaw.email), phone: text(profileRaw.phone_number), about: text(pick(profileRaw, 'about_me_english', 'about_me')), image: text(pick(profileRaw, 'user_profile_image_url', 'profile_photo')), memberSince: text(pick(profileRaw, 'member_since', 'created_at_formatted')), wallet: number(pick(wallet, 'balance', 'wallet_balance', 'amount') ?? profileRaw.wallet), raw: profileRaw })
+      } else setProfile(null)
+      setAddresses(rows(addressResult).map(mapAddress))
+      const uniqueBookings = new Map<string, LiveBooking>()
+      rows(bookingResult).map(row => mapBooking(row, 'Booking')).forEach(booking => {
+        const key = booking.reference || booking.id
+        if (!uniqueBookings.has(key)) uniqueBookings.set(key, booking)
+      })
+      setBookings([...uniqueBookings.values()])
+      setFavorites(rows(favoriteResult)); setWalletHistory(rows(walletResult)); setNotifications(rows(notificationResult))
+      const failures = [profileResult, addressResult, bookingResult, favoriteResult, walletResult, notificationResult].filter(result => result.status === 'rejected').length
+      if (failures) setAccountError(`${failures} account section${failures === 1 ? '' : 's'} could not be loaded. Try refreshing.`)
+    } catch (cause) { setAccountError(cause instanceof Error ? cause.message : 'Unable to load account data.') }
     finally { setAccountLoading(false) }
   }, [])
 
@@ -219,12 +264,19 @@ export function HelpyDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => { void refreshAccount() }, [refreshAccount, isLoggedIn])
 
   const value = useMemo<DataContext>(() => ({
-    loading, accountLoading, error, banners, categories, services, featured, providers, businesses, profile, addresses, bookings, favorites, walletHistory, notifications,
+    loading, accountLoading, error, accountError, banners, categories, services, featured, providers, businesses, profile, addresses, bookings, favorites, walletHistory, notifications,
     refreshCatalog, refreshAccount,
-    getAvailability: (vendorId, date) => helpyApi.getVendorAvailability(vendorId, date),
+    getAvailability: (vendorId, date, serviceVendorMapId) => helpyApi.getVendorAvailability(vendorId, date, serviceVendorMapId),
     updateProfile: async input => { await helpyApi.updateUserProfile(input); await refreshAccount() },
     addAddress: async input => { await helpyApi.storeAddress(input); await refreshAccount() },
-  }), [loading, accountLoading, error, banners, categories, services, featured, providers, businesses, profile, addresses, bookings, favorites, walletHistory, notifications, refreshCatalog, refreshAccount])
+    deleteAddress: async id => { await helpyApi.deleteAddress(id); await refreshAccount() },
+    toggleFavorite: async service => {
+      const userId = number(profile?.raw.id)
+      if (!userId || !service.serviceVendorMapId || !service.vendorId) throw new Error('Sign in and select a valid service to save it.')
+      await helpyApi.toggleFavorite({ userId, serviceVendorMapId: service.serviceVendorMapId, providerId: service.vendorId })
+      setFavorites(await helpyApi.getFavorites())
+    },
+  }), [loading, accountLoading, error, accountError, banners, categories, services, featured, providers, businesses, profile, addresses, bookings, favorites, walletHistory, notifications, refreshCatalog, refreshAccount])
 
   return <Context.Provider value={value}>{children}</Context.Provider>
 }

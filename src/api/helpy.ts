@@ -3,7 +3,7 @@ const TOKEN_KEY = 'helpy_session_token'
 const SESSION_KIND_KEY = 'helpy_session_kind'
 const FIREBASE_CUSTOM_TOKEN_KEY = 'helpy_firebase_custom_token'
 
-type RequestMethod = 'GET' | 'POST'
+type RequestMethod = 'GET' | 'POST' | 'DELETE'
 type QueryValue = string | number | boolean | null | undefined
 
 export type HelpyEnvelope<T> = {
@@ -87,6 +87,7 @@ export type HelpyAvailabilitySlot = {
 }
 
 export type HelpyAddressInput = {
+  id?: string
   addressType?: 1 | 2 | 3
   title: string
   address: string
@@ -286,6 +287,8 @@ class HelpyApiClient {
     })
     if (!response.token) throw new HelpyApiError('Login response did not include a token', 200, response)
     writeToken(response.token, 'user')
+    clearHelpyFirebaseCustomToken()
+    window.sessionStorage.removeItem('helpy_firebase_session')
     writeFirebaseCustomToken(response.data.firebaseToken)
     return response.data
   }
@@ -338,9 +341,21 @@ class HelpyApiClient {
     })).data
   }
 
-  async getVendorAvailability(vendorId: number, date: string) {
+  async getVendorAvailability(vendorId: number, date: string, serviceVendorMapId?: number) {
     return (await this.request<HelpyAvailabilitySlot[]>('vendor-availability', {
-      method: 'POST', form: { vendor_id: vendorId, date },
+      method: 'POST', form: { vendor_id: vendorId, date, service_vendor_mapp_id: serviceVendorMapId },
+    })).data
+  }
+
+  async checkSlotAvailability(input: { vendorId: number; serviceVendorMapId: number; date: string; startTime: string }) {
+    return (await this.request<unknown>('slot-availability', {
+      method: 'POST', form: { vendor_id: input.vendorId, service_vendor_mapp_id: input.serviceVendorMapId, date: input.date, start_time: input.startTime },
+    })).data
+  }
+
+  async bookingPreflight(finalPrice: number) {
+    return (await this.request<{ next_step: string; shortage_amount: string; wallet_balance: string }>('booking-preflight', {
+      method: 'POST', form: { final_price: finalPrice },
     })).data
   }
 
@@ -354,6 +369,13 @@ class HelpyApiClient {
 
   async getPolicy() {
     return (await this.request<Record<string, string>>('policy')).data
+  }
+
+  async sendContactMessage(input: { name: string; email: string; phoneNumber?: string; message: string }) {
+    return (await this.request<unknown>('contact-us', {
+      method: 'POST',
+      multipart: { name: input.name, email: input.email, phone_number: input.phoneNumber, message: input.message },
+    })).data
   }
 
   async getUserProfile() {
@@ -376,9 +398,9 @@ class HelpyApiClient {
     return (await this.request<{ count: number }>('unseen-order-count')).data
   }
 
-  async getBookings(status: 0 | 1 | 2) {
+  async getBookings(status?: 0 | 1 | 2 | 3 | 4 | 5) {
     return (await this.request<unknown[]>('booking-list', {
-      query: { status, serviceSetupImageSize: '375_240', userImageSize: '100_100' },
+      query: { ...(status === undefined ? {} : { status }), serviceSetupImageSize: '375_240', userImageSize: '100_100' },
     })).data
   }
 
@@ -402,6 +424,13 @@ class HelpyApiClient {
     })).data
   }
 
+  async toggleFavorite(input: { serviceVendorMapId: number; providerId: number; userId: number }) {
+    return (await this.request<unknown>('favorites-add-remove', {
+      method: 'POST',
+      form: { service_vendor_mapp_id: input.serviceVendorMapId, provider_id: input.providerId, user_id: input.userId },
+    })).data
+  }
+
   async updateUserProfile(input: { name: string; email: string; phoneNumber: string; aboutMe?: string }) {
     return (await this.request<Record<string, unknown>>('update-user-profile', {
       method: 'POST',
@@ -420,6 +449,7 @@ class HelpyApiClient {
     return (await this.request<Record<string, unknown>>('store-address', {
       method: 'POST',
       multipart: {
+        user_address_id: input.id,
         address_type: addressType,
         address: input.address,
         address_ar: '',
@@ -439,6 +469,10 @@ class HelpyApiClient {
         is_default: 0,
       },
     })).data
+  }
+
+  async deleteAddress(id: string) {
+    return (await this.request<unknown>(`delete-address/${encodeURIComponent(id)}`, { method: 'DELETE' })).data
   }
 }
 

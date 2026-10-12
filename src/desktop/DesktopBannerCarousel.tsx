@@ -2,8 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { Screen } from '../context/NavContext'
 import { useHelpyData, type LiveBanner } from '../context/HelpyDataContext'
+import ResilientImage from './ResilientImage'
 
 type Navigate = (screen: Screen, params?: any) => void
+
+const bannerFallbacks: Record<string, string> = {
+  'trendy media': '/assets/banner-trendy-media-no-cta.png',
+  football: '/assets/banner-foot-champz-no-cta.png',
+  'bubble it': '/assets/banner-bubbleit-car-care-no-cta.png',
+  heritage: '/assets/banner-heritage-luxury-no-cta.png',
+}
+
+const fallbackFor = (name: string) => bannerFallbacks[name.trim().toLowerCase()]
 
 export default function DesktopBannerCarousel({ navigate }: { navigate: Navigate }) {
   const { banners, services, loading } = useHelpyData()
@@ -137,7 +147,14 @@ export default function DesktopBannerCarousel({ navigate }: { navigate: Navigate
           aria-current={index === active ? 'true' : undefined}
           tabIndex={target && index >= active && index < active + visible ? 0 : -1}
         >
-          <img src={banner.image} alt={banner.name} draggable={false} fetchPriority={index >= banners.length * 2 && index < banners.length * 2 + 3 ? 'high' : 'auto'} className="h-full w-full object-cover object-center" />
+          <ResilientImage
+            src={banner.image}
+            fallbackSrc={fallbackFor(banner.name)}
+            fallback={<span className="flex h-full w-full flex-col justify-end bg-gradient-to-br from-[#071b52] to-[#0967ff] p-6 text-white"><span className="text-xs font-bold uppercase tracking-[.16em] text-blue-200">Helpy</span><span className="mt-2 text-xl font-black">{banner.name}</span></span>}
+            alt={banner.name}
+            draggable={false}
+            className="h-full w-full object-cover object-center"
+          />
           <span className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-white/15"/>
         </button>
       })}
