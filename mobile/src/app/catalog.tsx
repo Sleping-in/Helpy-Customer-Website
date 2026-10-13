@@ -3,17 +3,17 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { BusinessCard } from '../../components/BusinessCard'
-import { businessDistanceKm } from '../../lib/distance'
-import { loadHomeData, searchBusinesses, type HomeAddress, type HomeBusiness, type HomeCategory } from '../../lib/helpy-api'
-import { readSelectedAddressId } from '../../lib/session'
-import { cardShadow, colors, radius, space } from '../../lib/theme'
-import { useSavedBusinesses } from '../../lib/use-saved-businesses'
+import { BusinessCard } from '../components/BusinessCard'
+import { businessDistanceKm } from '../lib/distance'
+import { loadHomeData, searchBusinesses, type HomeAddress, type HomeBusiness, type HomeCategory } from '../lib/helpy-api'
+import { readSelectedAddressId } from '../lib/session'
+import { cardShadow, colors, radius, space } from '../lib/theme'
+import { useSavedBusinesses } from '../lib/use-saved-businesses'
 
 const BLUE = colors.blue
 const INK = colors.ink
 
-export default function ExploreScreen() {
+export default function CatalogScreen() {
   const params = useLocalSearchParams<{ view?: string }>()
   const view = params.view === 'categories' ? 'categories' : 'businesses'
   const [categories, setCategories] = useState<HomeCategory[]>([])
@@ -41,7 +41,7 @@ export default function ExploreScreen() {
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Unable to load businesses.'
       if (initial) setError(message)
-      else Alert.alert('Could Not Refresh Explore', message)
+      else Alert.alert('Could Not Refresh', message)
     } finally {
       if (initial) setLoading(false)
     }
@@ -79,9 +79,7 @@ export default function ExploreScreen() {
   ), [businesses, categoryId, query, searchResults])
 
   const openBusiness = (business: HomeBusiness) => {
-    const service = business.services[0]
-    if (!service?.serviceVendorMapId) return
-    router.push({ pathname: '/service-detail', params: { serviceVendorMapId: String(service.serviceVendorMapId), name: service.name, provider: service.provider } })
+    router.push({ pathname: '/business-detail', params: { vendorId: String(business.id) } })
   }
 
   const toggleSavedBusiness = async (business: HomeBusiness) => {
@@ -91,7 +89,8 @@ export default function ExploreScreen() {
 
   return <SafeAreaView style={styles.safe} edges={['top']}>
     <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl onRefresh={() => void refresh()} refreshing={refreshing} tintColor={BLUE} />} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>Explore</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="Go Back" onPress={() => router.back()}><Text style={styles.retry}>‹ Back</Text></Pressable>
+      <Text style={styles.title}>{view === 'categories' ? 'Categories' : 'Businesses'}</Text>
       <View style={styles.switcher}>
         <Pressable accessibilityRole="tab" accessibilityState={{ selected: view === 'categories' }} onPress={() => router.setParams({ view: 'categories' })} style={[styles.switchButton, view === 'categories' && styles.switchActive]}><Text style={[styles.switchLabel, view === 'categories' && styles.switchLabelActive]}>Categories</Text></Pressable>
         <Pressable accessibilityRole="tab" accessibilityState={{ selected: view === 'businesses' }} onPress={() => router.setParams({ view: 'businesses' })} style={[styles.switchButton, view === 'businesses' && styles.switchActive]}><Text style={[styles.switchLabel, view === 'businesses' && styles.switchLabelActive]}>Businesses</Text></Pressable>

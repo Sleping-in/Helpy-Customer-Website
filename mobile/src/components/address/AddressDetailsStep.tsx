@@ -82,14 +82,12 @@ export function AddressDetailsStep({ form, onChange, onChangeType, onSave, savin
   }
 
   const typeMeta = ADDRESS_TYPES.find(item => item.kind === form.labelKind) || ADDRESS_TYPES[2]
-  const anyAutofill = (['building', 'street', 'zone', 'stateId', 'cityId', 'landmark'] as const).some(key => form.autofilled[key] === true)
 
   return (
     <View style={styles.root}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={styles.title}>{form.mode === 'edit' ? 'Edit Address Details' : 'Add Address Details'}</Text>
-          {anyAutofill ? <Text style={styles.caption}>Autofilled From The Map</Text> : null}
         </View>
         <Pressable
           accessibilityHint="Choose a different address type"

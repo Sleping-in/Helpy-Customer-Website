@@ -57,7 +57,7 @@ export default function ServiceDetailScreen() {
     let active = true;
     const timer = setTimeout(() => {
       if (!Number.isFinite(id) || id <= 0) {
-        setError("This service is missing its backend booking reference.");
+        setError("This service is currently unavailable.");
         return;
       }
       void getServiceDetails(id)

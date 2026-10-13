@@ -10,6 +10,8 @@ export default function RootLayout() {
         <Stack.Screen name="addresses" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="booking-detail" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="booking-review" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="catalog" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="business-detail" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </>
   )

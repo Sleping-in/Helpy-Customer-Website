@@ -349,6 +349,23 @@ export async function getServiceDetails(id: number) {
   return mapService(row)
 }
 
+/** vendor-details identifies a service mapping; vendor-service-offered is scoped to a vendor and category. */
+export async function getBusinessDetails(vendorId: number): Promise<HomeBusiness> {
+  if (!Number.isInteger(vendorId) || vendorId <= 0) throw new Error('This business is unavailable.')
+  const home = await loadHomeData()
+  const business = home.businesses.find(item => item.id === vendorId)
+  if (!business?.services[0]) throw new Error('This business is no longer available.')
+  const detail = await getServiceDetails(business.services[0].serviceVendorMapId)
+  if (detail.vendorId !== vendorId) throw new Error('Unable to load this business.')
+  const profile = detail.raw.created_by && typeof detail.raw.created_by === 'object' ? detail.raw.created_by as Record<string, unknown> : business.raw
+  const rows = await Promise.all(home.categories.map(category => request<Record<string, unknown>[]>('vendor-service-offered', {
+    method: 'POST',
+    form: { vendor_id: vendorId, category_id: category.id, serviceSetupImageSize: '375_240', userImageSize: '100_100' },
+  })))
+  const services = rows.flat().map(row => mapService({ ...row, vendor_id: vendorId, created_by: profile }, home.categories))
+  return { ...business, name: stringValue(value(profile, 'name_english', 'name'), business.name), image: providerImage(profile) || business.image, raw: profile, services }
+}
+
 export async function loadAddresses() {
   const rows = await request<Record<string, unknown>[]>('get-addresses')
   return rows.map(mapAddress)

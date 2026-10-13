@@ -57,6 +57,8 @@ export default function AddAddressScreen() {
 
   // ----- refs -----
   const mapRef = useRef<MapView | null>(null)
+  const mapReady = useRef(false)
+  const pendingMapPoint = useRef<{ point: Point; zoom: number } | null>(null)
   const searchInputRef = useRef<TextInput | null>(null)
   const stepRef = useRef<Step>('pick')
   const reverseSeq = useRef(0)
@@ -236,6 +238,7 @@ export default function AddAddressScreen() {
 
   const onPanDrag = () => {
     userDragging.current = true
+    pendingMapPoint.current = null
     if (followUser.current) {
       followUser.current = false
       refineSession.current?.cancel()
@@ -246,7 +249,8 @@ export default function AddAddressScreen() {
   const moveMapTo = useCallback((point: Point, zoom: number, duration: number) => {
     setCenter(point)
     patchAddressDraft(point)
-    mapRef.current?.animateToRegion({ ...point, latitudeDelta: zoom, longitudeDelta: zoom }, duration)
+    if (mapReady.current) mapRef.current?.animateToRegion({ ...point, latitudeDelta: zoom, longitudeDelta: zoom }, duration)
+    else pendingMapPoint.current = { point, zoom }
   }, [])
 
   // ===== locate me (quick fix -> refine for ~6 s, always cleaned up) =====
@@ -347,6 +351,10 @@ export default function AddAddressScreen() {
 
   const confirmLocation = () => {
     if (confirmDisabled) return
+    followUser.current = false
+    refineSession.current?.cancel()
+    refineSession.current = null
+    pendingMapPoint.current = null
     syncDraft({ ...form, ...center })
     setSaveError('')
     setStep(form.mode === 'edit' ? 'details' : 'type')
@@ -492,6 +500,12 @@ export default function AddAddressScreen() {
           ref={mapRef}
           accessibilityLabel="Location Map"
           initialRegion={initialRegion}
+          onMapReady={() => {
+            mapReady.current = true
+            const pending = pendingMapPoint.current
+            pendingMapPoint.current = null
+            if (pending) mapRef.current?.animateToRegion({ ...pending.point, latitudeDelta: pending.zoom, longitudeDelta: pending.zoom }, 500)
+          }}
           onPanDrag={onPanDrag}
           onRegionChange={onRegionChange}
           onRegionChangeComplete={onRegionChangeComplete}

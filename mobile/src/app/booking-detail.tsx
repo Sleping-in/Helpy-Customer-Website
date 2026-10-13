@@ -22,7 +22,7 @@ export default function BookingDetailScreen() {
     let active = true;
     const timer = setTimeout(() => {
       if (!id) {
-        setError("This booking is missing its backend reference.");
+        setError("This booking is currently unavailable.");
         return;
       }
       void getBookingDetails(id)
@@ -101,9 +101,6 @@ export default function BookingDetailScreen() {
                 }
               />
             </View>
-            <Text style={styles.reference}>
-              Backend booking reference: {item.id}
-            </Text>
           </>
         ) : error ? (
           <View style={styles.state}>
@@ -233,12 +230,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 20,
     marginTop: 3,
-  },
-  reference: {
-    color: colors.muted,
-    fontSize: 11,
-    marginTop: 16,
-    textAlign: "center",
   },
   state: { alignItems: "center", paddingTop: 110 },
   stateTitle: {

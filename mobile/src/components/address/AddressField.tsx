@@ -6,22 +6,15 @@ import { colors, radius, space, touch } from '../../lib/theme'
 type BaseProps = {
   label: string
   required?: boolean
-  /** Shows the small "Autofilled" badge until the user edits the value. */
   autofilled?: boolean
   error?: string
   helper?: string
 }
 
-function FieldLabel({ label, required, autofilled }: Pick<BaseProps, 'label' | 'required' | 'autofilled'>) {
+function FieldLabel({ label, required }: Pick<BaseProps, 'label' | 'required' | 'autofilled'>) {
   return (
     <View style={styles.labelRow}>
       <Text style={styles.label}>{label}{required ? <Text style={styles.required}> *</Text> : null}</Text>
-      {autofilled ? (
-        <View accessibilityLabel="Autofilled from the map" style={styles.badge}>
-          <Ionicons name="sparkles" size={10} color={colors.blue} />
-          <Text style={styles.badgeText}>Autofilled</Text>
-        </View>
-      ) : null}
     </View>
   )
 }
@@ -103,8 +96,6 @@ const styles = StyleSheet.create({
   labelRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, minHeight: 18 },
   label: { color: colors.categoryLabel, fontSize: 13, fontWeight: '700' },
   required: { color: colors.heart },
-  badge: { alignItems: 'center', backgroundColor: colors.categoryTint, borderRadius: 10, flexDirection: 'row', gap: 3, paddingHorizontal: 7, paddingVertical: 2 },
-  badgeText: { color: colors.blue, fontSize: 10, fontWeight: '700' },
   input: { backgroundColor: colors.imageFallback, borderColor: 'transparent', borderRadius: radius.lg, borderWidth: 1.5, color: colors.ink, fontSize: 15, fontWeight: '600', minHeight: 52, paddingHorizontal: space.lg, paddingVertical: 12 },
   inputMultiline: { minHeight: 96, paddingTop: 14 },
   inputFocused: { backgroundColor: colors.card, borderColor: colors.blue },

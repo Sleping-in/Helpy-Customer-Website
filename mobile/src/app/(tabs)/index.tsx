@@ -220,16 +220,14 @@ export default function HomeScreen() {
 
   const openService = (service: HomeService) => {
     if (!service.serviceVendorMapId) {
-      Alert.alert('Service Unavailable', 'This service is missing a valid booking reference.')
+      Alert.alert('Service Unavailable', 'This service is currently unavailable.')
       return
     }
     router.push({ pathname: '/service-detail', params: { serviceVendorMapId: String(service.serviceVendorMapId), name: service.name, provider: service.provider } })
   }
 
   const openBusiness = (business: HomeBusiness) => {
-    const service = business.services[0]
-    if (service) openService(service)
-    else router.navigate('/(tabs)/explore')
+    router.push({ pathname: '/business-detail', params: { vendorId: String(business.id) } })
   }
 
   const toggleSavedBusiness = async (business: HomeBusiness) => {
@@ -342,9 +340,9 @@ export default function HomeScreen() {
           {query ? <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Search Results</Text><Text style={styles.resultCount}>{filteredServices.length} found</Text></View> : null}
           {query ? <View style={styles.searchResults}>{filteredServices.map(service => <ServiceCard key={service.id} service={service} onPress={() => openService(service)} />)}{!filteredServices.length ? <View style={styles.emptyCard}><Text style={styles.emptyTitle}>No Matches</Text><Text style={styles.emptyText}>No services match that search.</Text></View> : null}</View> : <>
             {banners.length ? <><Animated.ScrollView ref={bannerRef} contentContainerStyle={styles.bannerRail} decelerationRate="fast" horizontal onMomentumScrollEnd={onBannerSettled} onScrollEndDrag={onBannerSettled} onScrollBeginDrag={() => { if (autoPlayRef.current) clearTimeout(autoPlayRef.current) }} onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: bannerScrollX } } }], { useNativeDriver: true })} pagingEnabled={false} scrollEventThrottle={16} showsHorizontalScrollIndicator={false} snapToInterval={bannerWidth + 12} snapToAlignment="start">{banners.map(banner => <BannerCard key={banner.id} banner={banner} height={bannerHeight} width={bannerWidth} />)}</Animated.ScrollView><View accessibilityLabel={`Banner ${activeBanner + 1} of ${banners.length}`} style={[styles.indicators, { width: banners.length * 32 - 8 }]}>{banners.map(banner => <View key={banner.id} style={styles.indicator} />)}{banners.length > 1 ? <Animated.View style={[styles.indicatorActive, { transform: [{ translateX: bannerScrollX.interpolate({ inputRange: banners.map((_, index) => index * (bannerWidth + 12)), outputRange: banners.map((_, index) => index * 32), extrapolate: 'clamp' }) }] }]} /> : <View style={styles.indicatorActive} />}</View></> : <View style={styles.emptyCard}><Text style={styles.emptyText}>No featured banners are currently available.</Text></View>}
-            <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Browse Categories</Text><SeeAllLink label="View All" onPress={() => router.navigate({ pathname: '/(tabs)/explore', params: { view: 'categories' } })} /></View>
+            <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Browse Categories</Text><SeeAllLink label="View All" onPress={() => router.push({ pathname: '/catalog', params: { view: 'categories' } })} /></View>
             {categories.length ? <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={styles.categoryPager}>{categoryPages.map((page, pageIndex) => <View key={pageIndex} style={[styles.categoryPage, { width: categoryPageWidth }]}>{page.map(category => <View key={category.id} style={[styles.categoryCell, { width: `${100 / categoryColumns}%` as `${number}%` }]}><CategoryPill category={category} onPress={() => router.push({ pathname: '/category-services', params: { categoryId: String(category.id), label: category.name } })} /></View>)}</View>)}</ScrollView> : <View style={styles.emptyCard}><Text style={styles.emptyText}>No categories are currently published.</Text></View>}
-            <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Popular Businesses</Text><SeeAllLink label="See All" onPress={() => router.navigate({ pathname: '/(tabs)/explore', params: { view: 'businesses' } })} /></View>
+            <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Popular Businesses</Text><SeeAllLink label="See All" onPress={() => router.push({ pathname: '/catalog', params: { view: 'businesses' } })} /></View>
             {businesses.length ? <View style={styles.businessStack}>{businesses.slice(0, 4).map(business => <BusinessCard key={business.id} business={business} distanceKm={businessDistanceKm(selectedAddress, business)} onPress={() => openBusiness(business)} onSave={() => void toggleSavedBusiness(business)} saved={savedBusinesses.ids.includes(String(business.id))} />)}</View> : <View style={styles.emptyCard}><Text style={styles.emptyText}>No businesses are currently available.</Text></View>}
           </>}
         </>}
