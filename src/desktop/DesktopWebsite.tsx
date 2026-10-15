@@ -9,17 +9,18 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { type Screen, useNav } from '../context/NavContext'
 import DesktopAccountViews from './DesktopAccountViews'
 import DesktopBannerCarousel from './DesktopBannerCarousel'
-import { requestLoginOtp, verifyLoginOtp } from '../api/auth'
+import DesktopCheckout from './DesktopCheckout'
+import DesktopReviews from './DesktopReviews'
+import { getRegistrationDetails, requestLoginOtp, requestRegistrationOtp, verifyLoginOtp, verifyRegistrationOtp } from '../api/auth'
 import { hasHelpyUserSession, helpyApi } from '../api/helpy'
 import { useHelpyData } from '../context/HelpyDataContext'
-import { LiveBackendView, LiveDesktopAccount, LiveDesktopBookings, LiveDesktopCheckout, LiveDesktopExplore, LiveDesktopHome, LiveDesktopService, LiveMessages } from './DesktopLiveViews'
+import { LiveBackendView, LiveDesktopAccount, LiveDesktopBookings, LiveDesktopCheckout, LiveDesktopExplore, LiveDesktopHome, LiveDesktopService, LiveLocationChoice, LiveMessages } from './DesktopLiveViews'
 import {
   DesktopBookings,
   DesktopDiscoverySections,
   DesktopExploreView,
   DesktopMessages,
   DesktopProviderBooking,
-  DesktopReviews,
 } from './DesktopParityViews'
 
 type Service = {
@@ -96,7 +97,7 @@ export default function DesktopWebsite() {
   }, [screen])
 
   if (screen === 'splash') return <WelcomeScreen navigate={navigate} />
-  if (screen === 'login' || screen === 'verify') return <DesktopAuthScreen screen={screen} params={params} navigate={navigate} goBack={goBack} login={login} />
+  if (screen === 'login' || screen === 'register' || screen === 'verify') return <DesktopAuthScreen screen={screen} params={params} navigate={navigate} goBack={goBack} login={login} />
 
   return <div className="website-shell min-h-screen bg-[#f4f7fc] text-[#102044]">
     <DesktopTopBar screen={screen} navigate={navigate} />
@@ -110,7 +111,7 @@ export default function DesktopWebsite() {
 }
 
 function DesktopTopBar({ screen, navigate }: { screen: Screen; navigate: (screen: Screen, params?: any) => void }) {
-  const { profile, notifications, accountLoading } = useHelpyData()
+  const { profile, notifications, accountLoading, selectedAddress } = useHelpyData()
   const [query, setQuery] = useState('')
   const [profileOpen, setProfileOpen] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
@@ -141,9 +142,11 @@ function DesktopTopBar({ screen, navigate }: { screen: Screen; navigate: (screen
         {NAV_ITEMS.map(item => <button key={item.screen} onClick={() => navigate(item.screen)} aria-label={item.label} title={item.label} className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[12px] font-black transition 2xl:h-11 2xl:w-auto 2xl:gap-2 2xl:px-3 2xl:text-[13px] ${selected(item.screen) ? 'bg-[#0967ff] text-white shadow-lg shadow-blue-200' : 'text-[#596984] hover:bg-[#f3f7ff] hover:text-[#0967ff]'}`}><item.icon size={17}/><span className="hidden 2xl:inline">{item.label}</span></button>)}
       </nav>
       <button onClick={() => setNavOpen(value => !value)} className="ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#52617d] transition hover:bg-blue-50 md:hidden" aria-label="Open navigation"><Menu size={21}/></button>
+      <button onClick={() => navigate('all-services')} className="ml-auto rounded-xl p-2 text-[#52617d] md:hidden" aria-label="Search services"><Search size={19}/></button>
       <div className="ml-auto flex shrink-0 items-center gap-2 pl-3 2xl:pl-5">
         <div className="flex items-center gap-2 border-l border-[#e5ecf6] pl-3 2xl:pl-5">
-        <button onClick={() => navigate('location')} className="hidden items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-bold text-[#52617d] transition hover:bg-blue-50 lg:flex"><MapPin size={17} className="text-[#0967ff]"/>Doha</button>
+        <button onClick={() => navigate('location')} className="hidden max-w-[190px] items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-bold text-[#52617d] transition hover:bg-blue-50 lg:flex"><MapPin size={17} className="shrink-0 text-[#0967ff]"/><span className="truncate">{selectedAddress?.title || 'Choose location'}</span></button>
+        <button onClick={() => navigate('location')} className="rounded-xl p-2 text-[#52617d] lg:hidden" aria-label={selectedAddress ? `Location: ${selectedAddress.title}` : 'Choose location'}><MapPin size={19}/></button>
         <button onClick={() => navigate('notifications')} className="relative rounded-xl p-2.5 text-[#52617d] transition hover:bg-blue-50" aria-label="Notifications" title="Notifications"><Bell size={19}/>{unreadNotifications > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#ff5c7a] ring-2 ring-white"/>}</button>
         </div>
         <div className="h-8 border-l border-[#e5ecf6]" aria-hidden="true"/>
@@ -187,12 +190,12 @@ function DesktopRoute({ screen, params, navigate }: { screen: Screen; params: an
     case 'home': return <LiveDesktopHome navigate={navigate}/>
     case 'categories': case 'category-services': case 'all-services': case 'providers': case 'deals': case 'offers-events': return <LiveDesktopExplore screen={screen} params={params} navigate={navigate} />
     case 'service-detail': return <LiveDesktopService params={params} navigate={navigate} />
-    case 'booking-checkout': case 'glow-checkout': case 'booking-confirm': return <LiveDesktopCheckout params={params} navigate={navigate} />
+    case 'booking-checkout': case 'glow-checkout': case 'booking-confirm': return <DesktopCheckout params={params} navigate={navigate} />
     case 'booking-success': return <LiveBackendView screen={screen} params={params} navigate={navigate} />
     case 'orders': case 'order-detail': return <LiveDesktopBookings screen={screen} params={params} navigate={navigate} />
     case 'chat': case 'chat-thread': return <LiveMessages params={params} navigate={navigate} />
-    case 'location': return <DesktopAccountViews screen="addresses" navigate={navigate} />
-    case 'reviews': return <LiveBackendView screen={screen} params={params} navigate={navigate} />
+    case 'location': return <LiveLocationChoice navigate={navigate} />
+    case 'reviews': return <DesktopReviews params={params} />
     case 'profile': case 'notifications': case 'wallet': case 'favorites': case 'addresses': case 'contact-us': case 'terms': case 'privacy': return <DesktopAccountViews screen={screen} navigate={navigate} />
     default: return <LiveDesktopAccount screen="profile" navigate={navigate} />
   }
@@ -211,12 +214,21 @@ function AuthScreen({ screen, navigate, goBack }: { screen: Screen; navigate: (s
 }
 
 function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen: Screen; params: any; navigate: (screen: Screen, params?: any) => void; goBack: () => void; login: () => void }) {
-  const [email, setEmail] = useState(params?.email || '')
+  const savedRegistration = getRegistrationDetails()
+  const savedDraft = (() => { try { return JSON.parse(window.sessionStorage.getItem('helpy_registration_draft') || 'null') as { name?: string; email?: string; phone?: string } | null } catch { return null } })()
+  const [email, setEmail] = useState(params?.email || savedRegistration?.email || savedDraft?.email || '')
+  const [name, setName] = useState(savedRegistration?.name || savedDraft?.name || '')
+  const [phone, setPhone] = useState(savedRegistration?.phoneNumber || savedDraft?.phone || '')
   const [code, setCode] = useState(Array(6).fill(''))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const codeInputs = useRef<Array<HTMLInputElement | null>>([])
   const verifying = screen === 'verify'
+  const registering = screen === 'register' || params?.mode === 'register'
+
+  useEffect(() => {
+    if (screen === 'register') window.sessionStorage.setItem('helpy_registration_draft', JSON.stringify({ name, email, phone }))
+  }, [screen, name, email, phone])
 
   const sendCode = async () => {
     const value = email.trim().toLowerCase()
@@ -227,8 +239,17 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
     setLoading(true)
     setError('')
     try {
-      await requestLoginOtp(value)
-      navigate('verify', { email: value })
+      if (registering) {
+        if (!name.trim() || !/^(?:\+?974)?\d{8}$/.test(phone.replace(/[\s-]/g, ''))) {
+          setError('Enter your name and a valid Qatar mobile number.')
+          return
+        }
+        await requestRegistrationOtp({ name, email: value, phoneNumber: phone })
+        navigate('verify', { email: value, mode: 'register' })
+      } else {
+        await requestLoginOtp(value)
+        navigate('verify', { email: value, mode: 'login' })
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to send the verification code.')
     } finally {
@@ -246,9 +267,15 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
     setLoading(true)
     setError('')
     try {
-      const verified = await verifyLoginOtp(targetEmail, value)
-      if (verified) login()
-      else setError('That verification code is not valid.')
+      if (registering) {
+        await verifyRegistrationOtp(value)
+        window.sessionStorage.removeItem('helpy_registration_draft')
+        login()
+      } else {
+        const verified = await verifyLoginOtp(targetEmail, value)
+        if (verified) login()
+        else setError('That verification code is not valid.')
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to verify the code.')
     } finally {
@@ -259,12 +286,19 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
   const resendCode = async () => {
     setCode(Array(6).fill(''))
     setError('')
+    setLoading(true)
     try {
-      await requestLoginOtp((params?.email || email).trim().toLowerCase())
+      if (registering) {
+        const details = getRegistrationDetails()
+        if (!details) { navigate('register'); return }
+        await requestRegistrationOtp(details)
+      } else {
+        await requestLoginOtp((params?.email || email).trim().toLowerCase())
+      }
       codeInputs.current[0]?.focus()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to resend the code.')
-    }
+    } finally { setLoading(false) }
   }
 
   const updateCode = (value: string, index: number) => {
@@ -302,9 +336,10 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
     <div className="flex items-center justify-center px-5 py-12 sm:px-8">
       <div className="w-full max-w-[440px]">
         <button onClick={goBack} className="mb-10 inline-flex items-center gap-2 text-sm font-black text-[#64738f] transition hover:text-[#0967ff]"><ArrowLeft size={16}/> Back</button>
-        <p className="text-sm font-black uppercase tracking-[.14em] text-[#0967ff]">{verifying ? 'Almost there' : 'Welcome to Helpy'}</p>
-        <h2 className="mt-2 text-4xl font-black tracking-[-.045em]">{verifying ? 'Confirm your email' : 'Let’s get you started'}</h2>
-        <p className="mt-3 leading-7 text-[#63718b]">{verifying ? `We’ve sent a 6-digit code to ${params?.email || email || 'your email address'}.` : 'Enter your email address to receive a secure sign-in code.'}</p>
+        <p className="text-sm font-black uppercase tracking-[.14em] text-[#0967ff]">{verifying ? 'Almost there' : registering ? 'New account' : 'Welcome to Helpy'}</p>
+        <h2 className="mt-2 text-4xl font-black tracking-[-.045em]">{verifying ? 'Confirm your email' : registering ? 'Create your account' : 'Sign in'}</h2>
+        {params?.sessionExpired && <p role="status" className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Your session expired. Sign in again to continue where you left off.</p>}
+        <p className="mt-3 leading-7 text-[#63718b]">{verifying ? `We’ve sent a 6-digit code to ${params?.email || email || 'your email address'}.` : registering ? 'Enter your details, then verify your email to get started.' : 'Enter your email address to receive a secure sign-in code.'}</p>
         {verifying ? <>
           <div className="mt-8 flex justify-between gap-2 sm:gap-3" aria-label="Six-digit verification code">
             {code.map((digit, index) => <input key={index} ref={element => { codeInputs.current[index] = element }} value={digit} onChange={event => updateCode(event.target.value, index)} onKeyDown={event => handleCodeKeyDown(event, index)} onFocus={event => event.currentTarget.select()} inputMode="numeric" autoComplete={index === 0 ? 'one-time-code' : 'off'} maxLength={6} aria-label={`Digit ${index + 1} of 6`} className="h-14 w-11 rounded-xl border border-[#dfe8f5] bg-white text-center text-xl font-black outline-none transition sm:h-16 sm:w-14 sm:text-2xl focus:border-[#0967ff] focus:ring-4 focus:ring-blue-100" />)}
@@ -313,11 +348,14 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
           <button onClick={verifyCode} disabled={loading} className="mt-7 h-14 w-full rounded-2xl bg-[#0967ff] text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:bg-[#0759df] disabled:cursor-wait disabled:opacity-70">{loading ? 'Verifying…' : 'Verify & continue'}</button>
           <button onClick={resendCode} disabled={loading} className="mt-5 w-full text-sm font-black text-[#0967ff] disabled:opacity-60">Resend code</button>
         </> : <>
-          <label className="mt-8 block text-sm font-black">Email address</label>
+          {registering && <><label className="mt-8 block text-sm font-black">Your name</label><input value={name} onChange={event => setName(event.target.value)} autoComplete="name" className="mt-2 h-14 w-full rounded-2xl border border-[#dfe8f5] bg-white px-4 text-base font-bold outline-none focus:border-[#0967ff]" placeholder="Full name"/></>}
+          <label className={`${registering ? 'mt-5' : 'mt-8'} block text-sm font-black`}>Email address</label>
           <div className="mt-2 flex h-14 items-center rounded-2xl border border-[#dfe8f5] bg-white px-4 focus-within:border-[#0967ff] focus-within:ring-4 focus-within:ring-blue-100"><Mail size={18} className="mr-3 shrink-0 text-[#7e8da9]"/><input value={email} onChange={event => setEmail(event.target.value)} onKeyDown={event => event.key === 'Enter' && sendCode()} type="email" autoComplete="email" placeholder="you@example.com" className="min-w-0 flex-1 text-base font-bold outline-none"/></div>
+          {registering && <><label className="mt-5 block text-sm font-black">Mobile number</label><div className="mt-2 flex h-14 items-center rounded-2xl border border-[#dfe8f5] bg-white px-4"><span className="mr-3 border-r border-[#dfe8f5] pr-3 text-sm font-bold text-[#73809a]">+974</span><input value={phone.replace(/^974/, '')} onChange={event => setPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="55 123 456" className="min-w-0 flex-1 text-base font-bold outline-none"/></div><p className="mt-3 text-xs leading-5 text-[#73809a]">By creating an account you agree to Helpy’s <button onClick={() => navigate('terms')} className="text-[#0967ff] underline">Terms of service</button> and <button onClick={() => navigate('privacy')} className="text-[#0967ff] underline">Privacy policy</button>.</p></>}
           <p className="mt-3 text-sm font-semibold leading-6 text-[#73809a]">We’ll send a one-time verification code. No password is required.</p>
           {error && <p role="alert" className="mt-3 text-sm font-bold text-red-500">{error}</p>}
           <button onClick={sendCode} disabled={loading} className="mt-5 h-14 w-full rounded-2xl bg-[#0967ff] text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:bg-[#0759df] disabled:cursor-wait disabled:opacity-70">{loading ? 'Sending code…' : <>Continue <ArrowRight size={17} className="ml-1 inline" /></>}</button>
+          <button onClick={() => navigate(registering ? 'login' : 'register')} className="mt-4 w-full text-sm font-bold text-[#0967ff]">{registering ? 'Already have an account? Sign in' : 'New to Helpy? Create an account'}</button>
         </>}
       </div>
     </div>

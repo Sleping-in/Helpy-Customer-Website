@@ -22,7 +22,12 @@ function Heading({ title }: { eyebrow?: string; title: string; copy?: string }) 
 }
 
 function State({ loading, error, empty, retry }: { loading?: boolean; error?: string; empty?: string; retry?: () => void }) {
-  return <div className="rounded-[24px] border border-blue-100 bg-white px-6 py-14 text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-blue-50 text-[#0967ff]">{loading ? <LoaderCircle className="animate-spin"/> : <PackageCheck/>}</div><p className="mt-4 font-black">{loading ? 'Loading from Helpy…' : error || empty}</p>{error && retry && <button onClick={retry} className="mt-4 rounded-xl bg-[#0967ff] px-5 py-2.5 text-sm font-black text-white">Try again</button>}</div>
+  if (loading) return <div role="status" aria-label="Loading services" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map(index => <div key={index} className="animate-pulse overflow-hidden rounded-[24px] border border-blue-100 bg-white"><div className="h-32 bg-[#eaf1fb]"/><div className="space-y-3 p-5"><div className="h-4 w-2/3 rounded bg-[#eaf1fb]"/><div className="h-3 w-1/2 rounded bg-[#eaf1fb]"/></div></div>)}</div>
+  return <div className="rounded-[24px] border border-blue-100 bg-white px-6 py-14 text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-blue-50 text-[#0967ff]"><PackageCheck/></div><p className="mt-4 font-black">{error || empty}</p>{error && retry && <button onClick={retry} className="mt-4 rounded-xl bg-[#0967ff] px-5 py-2.5 text-sm font-black text-white">Try again</button>}</div>
+}
+
+function PartialCatalogWarning({ error, retry }: { error: string; retry: () => void }) {
+  return <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900"><span>{error}</span><button onClick={() => void retry()} className="font-black text-[#0967ff] underline">Retry</button></div>
 }
 
 function ServiceCard({ service, navigate }: { service: LiveService; navigate: Navigate }) {
@@ -71,21 +76,109 @@ export function LiveDesktopHome({ navigate }: { navigate: Navigate }) {
   const data = useHelpyData()
   const picks = data.businesses.slice(0, 6)
   const next = data.bookings.find(item => ['Upcoming', 'In progress'].includes(item.status))
-  return <div className="space-y-5 lg:space-y-6"><DesktopBannerCarousel navigate={navigate}/><section><div className="mb-1 flex items-center justify-between"><h2 className="text-2xl font-black tracking-[-.03em] text-[#102044]">Browse categories</h2><button onClick={() => navigate('categories')} className="shrink-0 text-sm font-black text-[#0967ff]">View all <ArrowRight size={14} className="inline"/></button></div>{data.loading ? <State loading/> : data.error ? <State error={data.error} retry={data.refreshCatalog}/> : data.categories.length ? <CategoryFilterCarousel categories={data.categories} categoryId={null} onSelect={id => { if (id === null) navigate('all-services'); else { const category = data.categories.find(item => item.id === id); navigate('category-services', { categoryId: id, label: category?.name }) } }}/> : <State empty="No categories are currently published."/>}</section><section className="grid items-start gap-5 xl:grid-cols-[1.5fr_.82fr]"><div><div className="mb-3 flex items-center justify-between"><h2 className="text-2xl font-black tracking-[-.03em] text-[#102044]">Popular businesses</h2><button onClick={() => navigate('providers')} className="shrink-0 text-sm font-black text-[#0967ff]">See all <ArrowRight size={14} className="inline"/></button></div>{picks.length ? <div className="grid gap-5 md:grid-cols-2">{picks.slice(0,4).map(business => <BusinessCard key={business.id} business={business} navigate={navigate}/>)}</div> : !data.loading && <State empty="No businesses are currently available."/>}</div><aside className="h-fit rounded-[26px] bg-white p-6 shadow-sm ring-1 ring-[#e5edf8]"><p className="text-xs font-black uppercase tracking-[.14em] text-[#0967ff]">Your next booking</p>{data.accountLoading ? <p className="mt-4 text-sm font-bold text-[#71809a]">Loading…</p> : next ? <><h2 className="mt-2 text-xl font-black">{readableDate(next.date)} · {next.time}</h2><div className="mt-5 rounded-2xl bg-[#f5f9ff] p-4"><p className="text-sm font-black">{next.provider}</p><p className="mt-1 text-xs font-bold text-[#71809a]">{next.service}</p><button onClick={() => navigate('order-detail', { booking: next })} className="mt-4 text-xs font-black text-[#0967ff]">View booking <ArrowRight size={13} className="inline"/></button></div></> : <><p className="mt-3 text-sm font-semibold leading-6 text-[#71809a]">{hasHelpyUserSession() ? 'You have no upcoming bookings.' : 'Sign in to see your upcoming bookings.'}</p><button onClick={() => navigate(hasHelpyUserSession() ? 'providers' : 'login')} className="mt-5 w-full rounded-xl border border-[#dbe8fb] py-3 text-sm font-black text-[#0967ff]">{hasHelpyUserSession() ? 'Browse businesses' : 'Sign in'}</button></>}</aside></section></div>
+  return <div className="space-y-5 lg:space-y-6"><DesktopBannerCarousel navigate={navigate}/>{data.error && data.categories.length > 0 && <PartialCatalogWarning error={data.error} retry={data.refreshCatalog}/>}<section><div className="mb-1 flex items-center justify-between"><h2 className="text-2xl font-black tracking-[-.03em] text-[#102044]">Browse categories</h2><button onClick={() => navigate('categories')} className="shrink-0 text-sm font-black text-[#0967ff]">View all <ArrowRight size={14} className="inline"/></button></div>{data.loading ? <State loading/> : data.error && !data.categories.length ? <State error={data.error} retry={data.refreshCatalog}/> : data.categories.length ? <CategoryFilterCarousel categories={data.categories} categoryId={null} onSelect={id => { if (id === null) navigate('all-services'); else { const category = data.categories.find(item => item.id === id); navigate('category-services', { categoryId: id, label: category?.name }) } }}/> : <State empty="No categories are currently published."/>}</section><section className="grid items-start gap-5 xl:grid-cols-[1.5fr_.82fr]"><div><div className="mb-3 flex items-center justify-between"><h2 className="text-2xl font-black tracking-[-.03em] text-[#102044]">Popular businesses</h2><button onClick={() => navigate('providers')} className="shrink-0 text-sm font-black text-[#0967ff]">See all <ArrowRight size={14} className="inline"/></button></div>{picks.length ? <div className="grid gap-5 md:grid-cols-2">{picks.slice(0,4).map(business => <BusinessCard key={business.id} business={business} navigate={navigate}/>)}</div> : !data.loading && <State empty="No businesses are currently available."/>}</div><aside className="h-fit rounded-[26px] bg-white p-6 shadow-sm ring-1 ring-[#e5edf8]"><p className="text-xs font-black uppercase tracking-[.14em] text-[#0967ff]">Your next booking</p>{data.accountLoading ? <p className="mt-4 text-sm font-bold text-[#71809a]">Loading…</p> : next ? <><h2 className="mt-2 text-xl font-black">{readableDate(next.date)} · {next.time}</h2><div className="mt-5 rounded-2xl bg-[#f5f9ff] p-4"><p className="text-sm font-black">{next.provider}</p><p className="mt-1 text-xs font-bold text-[#71809a]">{next.service}</p><button onClick={() => navigate('order-detail', { booking: next })} className="mt-4 text-xs font-black text-[#0967ff]">View booking <ArrowRight size={13} className="inline"/></button></div></> : <><p className="mt-3 text-sm font-semibold leading-6 text-[#71809a]">{hasHelpyUserSession() ? 'You have no upcoming bookings.' : 'Sign in to see your upcoming bookings.'}</p><button onClick={() => navigate(hasHelpyUserSession() ? 'providers' : 'login')} className="mt-5 w-full rounded-xl border border-[#dbe8fb] py-3 text-sm font-black text-[#0967ff]">{hasHelpyUserSession() ? 'Browse businesses' : 'Sign in'}</button></>}</aside></section></div>
+}
+
+export function LiveLocationChoice({ navigate }: { navigate: Navigate }) {
+  const data = useHelpyData()
+  const { goBack } = useNav()
+  if (!hasHelpyUserSession()) return <SignInState navigate={navigate} title="Sign in to choose a saved location"/>
+  return <div className="mx-auto max-w-3xl">
+    <Heading title="Choose your location"/>
+    <p className="mt-2 text-sm text-[#64738e]">We use the selected saved address for nearby services and distance. Your phone’s live location is not used.</p>
+    {data.accountLoading && !data.addresses.length ? <div className="mt-6"><State loading/></div> : data.addresses.length ? <div className="mt-6 space-y-3">{data.addresses.map(address => <button key={address.id} onClick={() => { data.selectAddress(address.id); goBack() }} className={`flex w-full items-center gap-4 rounded-2xl border bg-white p-5 text-left ${data.selectedAddress?.id === address.id ? 'border-[#0967ff] ring-2 ring-blue-100' : 'border-blue-100'}`}><MapPin className="shrink-0 text-[#0967ff]"/><span className="min-w-0 flex-1"><span className="block font-black">{address.title}{Boolean(address.raw.is_default) && <span className="ml-2 text-xs font-medium text-[#75839d]">Default</span>}</span><span className="mt-1 block text-sm text-[#64738e]">{address.address}</span></span>{data.selectedAddress?.id === address.id && <Check className="text-[#0967ff]"/>}</button>)}</div> : <div className="mt-6"><State empty="You have no saved addresses yet."/></div>}
+    <button onClick={() => navigate('addresses')} className="mt-6 rounded-xl bg-[#0967ff] px-5 py-3 text-sm font-bold text-white">Add or edit an address</button>
+  </div>
 }
 
 export function LiveDesktopExplore({ screen, params, navigate }: { screen: Screen; params: any; navigate: Navigate }) {
-  const data = useHelpyData(); const [query, setQuery] = useState(params?.query || ''); const [categoryId, setCategoryId] = useState<number | null>(params?.categoryId ?? null)
-  const shown = useMemo(() => data.businesses.filter(business => business.services.some(item => (!categoryId || item.categoryId === categoryId) && `${business.name} ${item.name} ${item.category}`.toLowerCase().includes(query.toLowerCase()))), [data.businesses, categoryId, query])
-  if (screen === 'categories') return <div><Heading eyebrow="LIVE CATALOG" title="Browse every category" copy="Categories currently published by the Helpy backend."/>{data.loading ? <div className="mt-8"><State loading/></div> : <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{data.categories.map(category => <button key={category.id} onClick={() => navigate('category-services', { categoryId: category.id, label: category.name })} className="rounded-[24px] border border-blue-100 bg-white p-6 text-left shadow-sm transition"><div className="h-28">{category.image && <img src={category.image} alt="" className="h-full w-full object-contain"/>}</div><h2 className="mt-4 text-xl font-black">{category.name}</h2><p className="mt-2 text-sm font-bold text-[#0967ff]">View services <ArrowRight size={14} className="inline"/></p></button>)}</div>}</div>
-  return <div><CategoryFilterCarousel categories={data.categories} categoryId={categoryId} onSelect={setCategoryId}/>{data.loading ? <div className="mt-6"><State loading/></div> : data.error ? <div className="mt-6"><State error={data.error} retry={data.refreshCatalog}/></div> : shown.length ? <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{shown.map(business => <BusinessCard key={business.id} business={business} navigate={navigate}/>)}</div> : <div className="mt-6"><State empty="No businesses match this view."/></div>}</div>
+  const data = useHelpyData()
+  const [query, setQuery] = useState(String(params?.query || ''))
+  const [categoryId, setCategoryId] = useState<number | null>(Number(params?.categoryId) || null)
+  const [serviceId, setServiceId] = useState(0)
+  const [serviceTypes, setServiceTypes] = useState<Array<{ id: number; name: string }>>([])
+  const [sortBy, setSortBy] = useState<'recently_added' | 'price_low_high' | 'price_high_low'>('recently_added')
+  const [distance, setDistance] = useState(0)
+  const [maxPrice, setMaxPrice] = useState('')
+  const [results, setResults] = useState<LiveService[]>([])
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingResults, setLoadingResults] = useState(true)
+  const [resultError, setResultError] = useState('')
+  const [reload, setReload] = useState(0)
+  useEffect(() => { setQuery(String(params?.query || '')) }, [params?.query])
+  useEffect(() => { setCategoryId(Number(params?.categoryId) || null); setServiceId(0); setPage(1) }, [params?.categoryId])
+  useEffect(() => {
+    let active = true
+    void helpyApi.getServiceTypes(categoryId || 0).then(rows => {
+      if (active) setServiceTypes(rows.map(row => ({ id: Number(row.service_id), name: String(row.name_english || row.name || 'Service') })).filter(row => row.id))
+    }).catch(() => { if (active) setServiceTypes([]) })
+    return () => { active = false }
+  }, [categoryId])
+  useEffect(() => {
+    if (screen === 'categories') return
+    let active = true
+    const timer = window.setTimeout(() => {
+      setLoadingResults(true); setResultError('')
+      const search = query.trim()
+      const request = search
+        ? helpyApi.searchServices(search, data.catalogCoordinates).then(rows => ({ data: rows, total_records: rows.length }))
+        : helpyApi.getServices(categoryId || 0, page, 20, {
+          // Laravel only applies its price range when both bounds are non-empty.
+          serviceId, sortBy, distance: distance || undefined, minPrice: maxPrice ? -0.01 : undefined, maxPrice: maxPrice ? Number(maxPrice) : undefined,
+        }, data.catalogCoordinates)
+      void request.then(result => {
+        if (!active) return
+        const mapped = (result.data || []).map(item => mapService(item, data.categories))
+        const filtered = search ? mapped.filter(item => (!categoryId || item.categoryId === categoryId) && (!serviceId || item.serviceId === serviceId) && (!maxPrice || item.price <= Number(maxPrice)) && (!distance || Number(item.raw.distance) <= distance)) : mapped
+        setResults(current => page > 1 && !search ? [...current, ...filtered] : filtered)
+        // Some deployed backend versions undercount grouped rows (for example,
+        // reporting 1 while returning a full page). Page size is reliable here.
+        setHasMore(!search && ((result.data || []).length >= 20 || Number(result.total_records) > page * 20))
+      }).catch(cause => { if (active) setResultError(cause instanceof Error ? cause.message : 'Unable to load services.') })
+        .finally(() => { if (active) setLoadingResults(false) })
+    }, query.trim() ? 250 : 0)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [screen, query, categoryId, serviceId, sortBy, distance, maxPrice, page, reload, data.catalogCoordinates?.latitude, data.catalogCoordinates?.longitude, data.categories])
+  const shown = useMemo(() => {
+    const grouped = new Map<number, LiveBusiness>()
+    results.forEach(service => {
+      if (!service.vendorId) return
+      const existing = grouped.get(service.vendorId)
+      if (existing) { if (!existing.services.some(item => item.id === service.id)) existing.services.push(service); return }
+      const known = data.businesses.find(item => item.id === service.vendorId)
+      const creator = service.raw.created_by && typeof service.raw.created_by === 'object' ? service.raw.created_by as Record<string, unknown> : {}
+      grouped.set(service.vendorId, {
+        id: service.vendorId, name: service.provider, image: known?.image || String(creator.vendor_profile_image_url || creator.user_profile_image_url || ''),
+        rating: known?.rating || service.rating, about: known?.about || '', services: [service], raw: known?.raw || creator,
+      })
+    })
+    return [...grouped.values()]
+  }, [results, data.businesses])
+  if (screen === 'categories') return <div><Heading title="Browse every category"/>{data.error && data.categories.length > 0 && <div className="mt-5"><PartialCatalogWarning error={data.error} retry={data.refreshCatalog}/></div>}{data.loading ? <div className="mt-8"><State loading/></div> : data.error && !data.categories.length ? <div className="mt-8"><State error={data.error} retry={data.refreshCatalog}/></div> : <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{data.categories.map(category => <button key={category.id} onClick={() => navigate('category-services', { categoryId: category.id, label: category.name })} className="rounded-[24px] border border-blue-100 bg-white p-6 text-left shadow-sm transition"><div className="h-28"><ResilientImage src={category.image} alt="" className="h-full w-full object-contain" fallback={<span className="grid h-full w-full place-items-center text-2xl font-bold text-blue-300">{initials(category.name)}</span>}/></div><h2 className="mt-4 text-xl font-black">{category.name}</h2><p className="mt-2 text-sm font-bold text-[#0967ff]">View services <ArrowRight size={14} className="inline"/></p></button>)}</div>}</div>
+  const changeCategory = (id: number | null) => { setCategoryId(id); setServiceId(0); setPage(1); setResults([]) }
+  return <div>
+    <Heading title={screen === 'providers' ? 'Businesses' : screen === 'category-services' ? data.categories.find(item => item.id === categoryId)?.name || 'Services' : query ? `Results for “${query}”` : 'Browse services'}/>
+    <div className="mt-5"><CategoryFilterCarousel categories={data.categories} categoryId={categoryId} onSelect={changeCategory}/></div>
+    <div className="mt-5 grid gap-3 rounded-2xl bg-white p-4 ring-1 ring-blue-100 sm:grid-cols-2 lg:grid-cols-[minmax(180px,1fr)_repeat(4,minmax(120px,.7fr))]">
+      <label className="text-xs font-bold text-[#64738e]">Search<input value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder="Service or business" className="mt-1.5 h-11 w-full rounded-xl border border-blue-100 px-3 text-sm text-[#102044] outline-none focus:border-[#0967ff]"/></label>
+      <label className="text-xs font-bold text-[#64738e]">Service type<select value={serviceId} onChange={event => { setServiceId(Number(event.target.value)); setPage(1) }} className="mt-1.5 h-11 w-full rounded-xl border border-blue-100 px-2 text-sm text-[#102044]"><option value={0}>All types</option>{serviceTypes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label className="text-xs font-bold text-[#64738e]">Sort<select value={sortBy} onChange={event => { setSortBy(event.target.value as typeof sortBy); setPage(1) }} className="mt-1.5 h-11 w-full rounded-xl border border-blue-100 px-2 text-sm text-[#102044]"><option value="recently_added">Recently added</option><option value="price_low_high">Price: low to high</option><option value="price_high_low">Price: high to low</option></select></label>
+      <label className="text-xs font-bold text-[#64738e]">Within<select value={distance} onChange={event => { setDistance(Number(event.target.value)); setPage(1) }} disabled={!data.catalogCoordinates} className="mt-1.5 h-11 w-full rounded-xl border border-blue-100 px-2 text-sm text-[#102044] disabled:opacity-50"><option value={0}>Any distance</option><option value={5}>5 km</option><option value={10}>10 km</option><option value={25}>25 km</option></select></label>
+      <label className="text-xs font-bold text-[#64738e]">Maximum price<input type="number" min="0" value={maxPrice} onChange={event => { setMaxPrice(event.target.value); setPage(1) }} placeholder="Any price" className="mt-1.5 h-11 w-full rounded-xl border border-blue-100 px-3 text-sm text-[#102044] outline-none focus:border-[#0967ff]"/></label>
+    </div>
+{loadingResults && !results.length ? <div className="mt-6"><State loading/></div> : resultError ? <div className="mt-6"><State error={resultError} retry={() => setReload(value => value + 1)}/></div> : shown.length ? <><p className="mt-5 text-sm font-semibold text-[#72819a]">{`${results.length} ${results.length === 1 ? 'service' : 'services'} shown across ${shown.length} ${shown.length === 1 ? 'business' : 'businesses'}${hasMore ? ' · More available' : ''}`}</p><div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{shown.map(business => <BusinessCard key={business.id} business={business} navigate={navigate}/>)}</div>{hasMore && <button disabled={loadingResults} onClick={() => setPage(value => value + 1)} className="mx-auto mt-7 block rounded-xl bg-[#0967ff] px-6 py-3 text-sm font-bold text-white disabled:opacity-60">{loadingResults ? 'Loading…' : 'Load more'}</button>}</> : <div className="mt-6"><State empty="No services match this search. Try another category or filter."/></div>}
+  </div>
 }
 
 export function LiveDesktopService({ params, navigate }: { params: any; navigate: Navigate }) {
   const data = useHelpyData()
-  const initialBusiness = params?.business as LiveBusiness | undefined
-  const initial = (params?.service as LiveService | undefined) || initialBusiness?.services[0]
+  const initialBusiness = (params?.business as LiveBusiness | undefined) || data.businesses.find(item => item.services.some(value => value.serviceVendorMapId === Number(params?.serviceVendorMapId)))
+  const initial = (params?.service as LiveService | undefined) || initialBusiness?.services.find(item => item.serviceVendorMapId === Number(params?.serviceVendorMapId)) || initialBusiness?.services[0]
   const [service, setService] = useState<LiveService | undefined>(initial)
+  const [offered, setOffered] = useState<LiveService[]>([])
+  const [offeredLoading, setOfferedLoading] = useState(false)
+  const [offeredError, setOfferedError] = useState('')
   const [preview, setPreview] = useState<LiveService | null>(null)
   const [date, setDate] = useState(nextDates[0])
   const [slots, setSlots] = useState<HelpyAvailabilitySlot[]>([])
@@ -95,7 +188,7 @@ export function LiveDesktopService({ params, navigate }: { params: any; navigate
   const [favoritePending, setFavoritePending] = useState<number | null>(null)
   const [favoriteError, setFavoriteError] = useState('')
 
-  useEffect(() => { setService(initial); setSlot(''); setPreview(null) }, [initial?.id, initialBusiness?.id])
+  useEffect(() => { if (initial) setService(initial); setSlot(''); setPreview(null) }, [initial?.id, initialBusiness?.id])
   useEffect(() => {
     if (service || !params?.serviceVendorMapId) return
     let current = true
@@ -104,6 +197,20 @@ export function LiveDesktopService({ params, navigate }: { params: any; navigate
       .catch(cause => { if (current) setError(cause.message) })
     return () => { current = false }
   }, [service, params?.serviceVendorMapId, data.categories])
+  useEffect(() => {
+    if (!service?.vendorId || !data.categories.length) return
+    let active = true
+    setOfferedLoading(true); setOfferedError('')
+    void Promise.allSettled(data.categories.map(category => helpyApi.getVendorServices(service.vendorId, category.id)))
+      .then(results => {
+        if (!active) return
+        const rows = results.flatMap(result => result.status === 'fulfilled' ? result.value : [])
+        const mapped = new Map(rows.map(row => { const value = mapService(row, data.categories); return [value.id, value] }))
+        setOffered([...mapped.values()])
+        if (results.every(result => result.status === 'rejected')) setOfferedError('Unable to load the full service list for this business.')
+      }).finally(() => { if (active) setOfferedLoading(false) })
+    return () => { active = false }
+  }, [service?.vendorId, data.categories])
   useEffect(() => {
     if (!service) return
     let current = true
@@ -118,7 +225,8 @@ export function LiveDesktopService({ params, navigate }: { params: any; navigate
     return () => { current = false }
   }, [service, date, data.getAvailability])
   if (!service) return <State loading={!error} error={error}/>
-  const business = initialBusiness || data.businesses.find(item => item.id === service.vendorId) || { id: service.vendorId, name: service.provider, image: '', rating: service.rating, about: '', services: [service], raw: {} }
+  const baseBusiness = initialBusiness || data.businesses.find(item => item.id === service.vendorId) || { id: service.vendorId, name: service.provider, image: '', rating: service.rating, about: '', services: [service], raw: {} }
+  const business = { ...baseBusiness, services: offered.length ? offered : baseBusiness.services }
   // Laravel marks occupied or elapsed slots as 1; 0 means bookable.
   const available = slots.filter(value => Number(value.isAvailable) === 0)
   const cover = business.services.find(item => item.image)?.image || business.image
@@ -150,6 +258,8 @@ export function LiveDesktopService({ params, navigate }: { params: any; navigate
 
       <section aria-labelledby="service-options-title" className="rounded-[24px] border border-blue-100 bg-white p-5 shadow-sm xl:p-6">
         <h2 id="service-options-title" className="text-xl font-black text-[#102044]">Select a service</h2>
+        {offeredLoading && <p role="status" className="mt-2 text-xs text-[#73819a]">Loading all services from this business…</p>}
+        {offeredError && <p role="alert" className="mt-2 text-xs text-red-600">{offeredError}</p>}
         <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,260px),1fr))] gap-3">
           {business.services.map(item => {
             const selected = service.id === item.id
@@ -162,7 +272,7 @@ export function LiveDesktopService({ params, navigate }: { params: any; navigate
                   <span aria-hidden="true" className={`mr-9 grid h-5 w-5 shrink-0 place-items-center rounded-full border ${selected ? 'border-[#0967ff] bg-[#0967ff] text-white' : 'border-slate-300 bg-white'}`}>{selected && <Check size={13} />}</span>
                 </div>
                 {item.description && <p className="mt-3 line-clamp-2 min-h-10 text-xs font-medium leading-5 text-[#73819a]">{item.description}</p>}
-                <p className="mt-3 text-sm font-black text-[#0967ff]">{money(item.price)}</p>
+                <p className="mt-3 flex items-center justify-between text-sm font-black text-[#0967ff]"><span>{money(item.price)}</span>{item.duration && <span className="text-xs font-medium text-[#73819a]">{item.duration}</span>}</p>
               </button>
               <button onClick={() => void toggleFavorite(item)} disabled={favoritePending === item.serviceVendorMapId || !item.serviceVendorMapId || !item.vendorId} aria-label={favorite ? `Remove ${item.name} from saved services` : `Save ${item.name}`} aria-pressed={favorite} className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-white text-[#0967ff] shadow-sm disabled:opacity-50"><Heart size={18} className={favorite ? 'fill-current' : ''}/></button>
               {item.description && <button onClick={() => setPreview(item)} aria-label={`View details for ${item.name}`} className="w-full border-t border-blue-100/60 px-4 py-2.5 text-left text-xs font-bold text-[#0967ff]">View details <ArrowRight size={12} className="ml-1 inline" /></button>}
@@ -170,6 +280,7 @@ export function LiveDesktopService({ params, navigate }: { params: any; navigate
           })}
         </div>
         {favoriteError && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-600">{favoriteError}</p>}
+        <button onClick={() => navigate('reviews', { service })} className="mt-5 text-sm font-bold text-[#0967ff]">Read customer reviews <ArrowRight size={14} className="inline"/></button>
       </section>
     </div>
 

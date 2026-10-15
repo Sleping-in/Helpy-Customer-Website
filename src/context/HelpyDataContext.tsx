@@ -71,6 +71,10 @@ export function mapService(item: HelpyService, categories: LiveCategory[] = []):
   const id = number(pick(raw, 'service_vendor_mapp_id', 'id'))
   const categoryId = number(pick(raw, 'category_id', 'service_category_id'))
   const imageValue = pick(raw, 'service_image_url', 'service_setup_image_url', 'image_url', 'image') || images[0] || pick(nestedService, 'service_image_url')
+  const durationData = raw['duration-data'] && typeof raw['duration-data'] === 'object' ? raw['duration-data'] as Record<string, unknown> : {}
+  const durationAmount = number(raw.duration ?? durationData.duration)
+  const durationUnit = text(raw.duration_unit_text ?? durationData.duration_unit_text)
+  const durationFallback = text(pick(raw, 'duration_text', 'service_duration'))
   return {
     id: String(id || pick(raw, 'service_id', 'name') || crypto.randomUUID()),
     serviceVendorMapId: id,
@@ -85,7 +89,7 @@ export function mapService(item: HelpyService, categories: LiveCategory[] = []):
     reviews: number(pick(raw, 'review_count', 'reviews_count', 'total_reviews')),
     image: text(imageValue),
     description: cleanText(pick(raw, 'description_english', 'description', 'service_description')),
-    duration: text(pick(raw, 'duration_text', 'duration_unit_text', 'service_duration', 'duration')),
+    duration: durationAmount > 0 && durationUnit && durationUnit !== 'Unknown' ? `${durationAmount} ${durationUnit}` : durationFallback && durationFallback !== 'Unknown' ? durationFallback : '',
     raw,
   }
 }
@@ -164,6 +168,7 @@ export function mapBooking(value: unknown, status: string): LiveBooking {
 type DataContext = {
   loading: boolean; accountLoading: boolean; error: string; accountError: string; banners: LiveBanner[]; categories: LiveCategory[]; services: LiveService[]; featured: LiveService[]; providers: LiveProvider[]; businesses: LiveBusiness[]
   profile: LiveProfile | null; addresses: LiveAddress[]; bookings: LiveBooking[]; favorites: unknown[]; walletHistory: unknown[]; notifications: unknown[]
+  selectedAddress: LiveAddress | null; selectAddress: (id: string) => void; catalogCoordinates?: { latitude: number; longitude: number }
   refreshCatalog: () => Promise<void>; refreshAccount: () => Promise<void>; getAvailability: (vendorId: number, date: string, serviceVendorMapId?: number) => Promise<HelpyAvailabilitySlot[]>
   updateProfile: (input: { name: string; email: string; phoneNumber: string; aboutMe?: string }) => Promise<void>
   addAddress: (input: HelpyAddressInput) => Promise<void>
@@ -186,10 +191,20 @@ export function HelpyDataProvider({ children }: { children: ReactNode }) {
   const [providers, setProviders] = useState<LiveProvider[]>([])
   const [profile, setProfile] = useState<LiveProfile | null>(null)
   const [addresses, setAddresses] = useState<LiveAddress[]>([])
+  const [selectedAddressId, setSelectedAddressId] = useState(() => window.sessionStorage.getItem('helpy_selected_address_id') || '')
   const [bookings, setBookings] = useState<LiveBooking[]>([])
   const [favorites, setFavorites] = useState<unknown[]>([])
   const [walletHistory, setWalletHistory] = useState<unknown[]>([])
   const [notifications, setNotifications] = useState<unknown[]>([])
+  const selectedAddress = addresses.find(address => address.id === selectedAddressId) || addresses.find(address => Boolean(address.raw.is_default)) || addresses[0] || null
+  const latitude = Number(selectedAddress?.raw.latitute ?? selectedAddress?.raw.latitude)
+  const longitude = Number(selectedAddress?.raw.longitude)
+  const catalogCoordinates = selectedAddress && Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? { latitude, longitude } : undefined
+  const selectAddress = (id: string) => {
+    setSelectedAddressId(id)
+    window.sessionStorage.setItem('helpy_selected_address_id', id)
+  }
 
   const businesses = useMemo<LiveBusiness[]>(() => {
     const grouped = new Map<number, LiveBusiness>()
@@ -219,22 +234,28 @@ export function HelpyDataProvider({ children }: { children: ReactNode }) {
       const categoryRows = await helpyApi.getCategories()
       const mappedCategories = categoryRows.map(mapCategory)
       setCategories(mappedCategories)
-      const [bannerRows, featuredRows, providerRows, ...servicePages] = await Promise.all([
-        helpyApi.getBanners().catch(() => []), helpyApi.getFeaturedServices(), helpyApi.getTopProviders(),
-        ...mappedCategories.map(category => helpyApi.getServices(category.id).catch(() => ({ total_records: 0, page: 1, limit: 100, data: [] }))),
+      const [bannerResult, featuredResult, providerResult, ...pageResults] = await Promise.allSettled([
+        helpyApi.getBanners(), helpyApi.getFeaturedServices(), helpyApi.getTopProviders(),
+        ...mappedCategories.map(category => helpyApi.getServices(category.id, 1, 100, {}, catalogCoordinates)),
       ])
+      const bannerRows = bannerResult.status === 'fulfilled' ? bannerResult.value : []
+      const featuredRows = featuredResult.status === 'fulfilled' ? featuredResult.value : []
+      const providerRows = providerResult.status === 'fulfilled' ? providerResult.value : []
+      const servicePages = pageResults.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
       setBanners(bannerRows.map(mapBanner).filter(banner => Boolean(banner.image)))
       const deduped = new Map<string, LiveService>()
       servicePages.flatMap(page => page.data || []).map(item => mapService(item, mappedCategories)).forEach(item => deduped.set(item.id, item))
       setServices([...deduped.values()])
       setFeatured(featuredRows.map(item => mapService(item, mappedCategories)))
       setProviders(providerRows.map(item => mapProvider(item, mappedCategories)))
+      const failures = [bannerResult, featuredResult, providerResult, ...pageResults].filter(result => result.status === 'rejected').length
+      if (failures) setError(`Some services could not be loaded (${failures} request${failures === 1 ? '' : 's'} failed). Try again to refresh them.`)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to load Helpy services.') }
     finally { setLoading(false) }
-  }, [])
+  }, [catalogCoordinates?.latitude, catalogCoordinates?.longitude])
 
   const refreshAccount = useCallback(async () => {
-    if (!hasHelpyUserSession()) { setProfile(null); setAddresses([]); setBookings([]); setFavorites([]); setWalletHistory([]); setNotifications([]); setAccountError(''); return }
+    if (!hasHelpyUserSession()) { setProfile(null); setAddresses([]); setSelectedAddressId(''); window.sessionStorage.removeItem('helpy_selected_address_id'); setBookings([]); setFavorites([]); setWalletHistory([]); setNotifications([]); setAccountError(''); return }
     setAccountLoading(true); setAccountError('')
     try {
       const [profileResult, addressResult, bookingResult, favoriteResult, walletResult, notificationResult] = await Promise.allSettled([
@@ -246,7 +267,12 @@ export function HelpyDataProvider({ children }: { children: ReactNode }) {
         const wallet = profileRaw.wallet && typeof profileRaw.wallet === 'object' ? profileRaw.wallet as Record<string, unknown> : {}
         setProfile({ name: text(pick(profileRaw, 'name_english', 'name')), email: text(profileRaw.email), phone: text(profileRaw.phone_number), about: text(pick(profileRaw, 'about_me_english', 'about_me')), image: text(pick(profileRaw, 'user_profile_image_url', 'profile_photo')), memberSince: text(pick(profileRaw, 'member_since', 'created_at_formatted')), wallet: number(pick(wallet, 'balance', 'wallet_balance', 'amount') ?? profileRaw.wallet), raw: profileRaw })
       } else setProfile(null)
-      setAddresses(rows(addressResult).map(mapAddress))
+      const nextAddresses = rows(addressResult).map(mapAddress)
+      setAddresses(nextAddresses)
+      if (!nextAddresses.some(address => address.id === selectedAddressId)) {
+        const initial = nextAddresses.find(address => Boolean(address.raw.is_default)) || nextAddresses[0]
+        if (initial) selectAddress(initial.id)
+      }
       const uniqueBookings = new Map<string, LiveBooking>()
       rows(bookingResult).map(row => mapBooking(row, 'Booking')).forEach(booking => {
         const key = booking.reference || booking.id
@@ -258,17 +284,25 @@ export function HelpyDataProvider({ children }: { children: ReactNode }) {
       if (failures) setAccountError(`${failures} account section${failures === 1 ? '' : 's'} could not be loaded. Try refreshing.`)
     } catch (cause) { setAccountError(cause instanceof Error ? cause.message : 'Unable to load account data.') }
     finally { setAccountLoading(false) }
-  }, [])
+  }, [selectedAddressId])
 
   useEffect(() => { void refreshCatalog() }, [refreshCatalog])
   useEffect(() => { void refreshAccount() }, [refreshAccount, isLoggedIn])
 
   const value = useMemo<DataContext>(() => ({
-    loading, accountLoading, error, accountError, banners, categories, services, featured, providers, businesses, profile, addresses, bookings, favorites, walletHistory, notifications,
+    loading, accountLoading, error, accountError, banners, categories, services, featured, providers, businesses, profile, addresses, bookings, favorites, walletHistory, notifications, selectedAddress, selectAddress, catalogCoordinates,
     refreshCatalog, refreshAccount,
     getAvailability: (vendorId, date, serviceVendorMapId) => helpyApi.getVendorAvailability(vendorId, date, serviceVendorMapId),
     updateProfile: async input => { await helpyApi.updateUserProfile(input); await refreshAccount() },
-    addAddress: async input => { await helpyApi.storeAddress(input); await refreshAccount() },
+    addAddress: async input => {
+      await helpyApi.storeAddress(input)
+      if (input.isDefault) {
+        const updated = (await helpyApi.getAddresses()).map(mapAddress)
+        const newDefault = updated.find(address => Boolean(address.raw.is_default))
+        if (newDefault) selectAddress(newDefault.id)
+      }
+      await refreshAccount()
+    },
     deleteAddress: async id => { await helpyApi.deleteAddress(id); await refreshAccount() },
     toggleFavorite: async service => {
       const userId = number(profile?.raw.id)
@@ -276,7 +310,7 @@ export function HelpyDataProvider({ children }: { children: ReactNode }) {
       await helpyApi.toggleFavorite({ userId, serviceVendorMapId: service.serviceVendorMapId, providerId: service.vendorId })
       setFavorites(await helpyApi.getFavorites())
     },
-  }), [loading, accountLoading, error, accountError, banners, categories, services, featured, providers, businesses, profile, addresses, bookings, favorites, walletHistory, notifications, refreshCatalog, refreshAccount])
+  }), [loading, accountLoading, error, accountError, banners, categories, services, featured, providers, businesses, profile, addresses, selectedAddressId, bookings, favorites, walletHistory, notifications, refreshCatalog, refreshAccount])
 
   return <Context.Provider value={value}>{children}</Context.Provider>
 }

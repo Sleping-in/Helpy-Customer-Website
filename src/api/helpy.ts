@@ -88,6 +88,7 @@ export type HelpyAvailabilitySlot = {
 
 export type HelpyAddressInput = {
   id?: string
+  isDefault?: boolean
   addressType?: 1 | 2 | 3
   title: string
   address: string
@@ -104,6 +105,30 @@ export type HelpyAddressInput = {
   longitude?: number
   notes?: string
 }
+
+export type HelpyCatalogFilters = {
+  categoryId?: number
+  serviceId?: number
+  minPrice?: number
+  maxPrice?: number
+  distance?: number
+  sortBy?: 'recently_added' | 'price_low_high' | 'price_high_low'
+  page?: number
+  limit?: number
+}
+
+export type HelpyPreflight = {
+  wallet_balance: string
+  final_price: string
+  wallet_cover_amount: string
+  shortage_amount: string
+  can_wallet_fully_cover: number
+  can_proceed: number
+  payment_type: string
+  next_step: string
+}
+
+export type HelpyPromo = { promo_code_id: number; promo_code: string; discount_percentage: number | string }
 
 export class HelpyApiError extends Error {
   constructor(
@@ -218,6 +243,10 @@ class HelpyApiClient {
 
     const payload = await response.json().catch(() => null) as HelpyEnvelope<T> | null
     if (!response.ok || !payload?.status) {
+      if ((response.status === 401 || payload?.code === 401) && hasHelpyUserSession()) {
+        this.clearSession()
+        window.dispatchEvent(new Event('helpy:session-expired'))
+      }
       throw new HelpyApiError(payload?.message || `Helpy API request failed (${response.status})`, response.status, payload)
     }
     return payload
@@ -263,6 +292,26 @@ class HelpyApiClient {
         type: 'login',
       },
     })).data
+  }
+
+  async sendRegistrationOtp(input: { email: string; phoneNumber: string }) {
+    return (await this.request<unknown>('otp-send', {
+      method: 'POST',
+      multipart: { email: input.email, phone_number: input.phoneNumber, user_type: 'user', otp_type: 'email', type: 'register' },
+    })).data
+  }
+
+  async registerWithOtp(input: { name: string; email: string; phoneNumber: string; code: string }) {
+    const response = await this.request<Record<string, unknown>>('user-register', {
+      method: 'POST',
+      multipart: { name: input.name, email: input.email, phone_number: input.phoneNumber, otp_code: input.code, otp_type: 'email' },
+      authenticated: false,
+    })
+    if (!response.token) throw new HelpyApiError('Registration response did not include a session token', 200, response)
+    writeToken(response.token, 'user')
+    clearHelpyFirebaseCustomToken()
+    writeFirebaseCustomToken(response.data.firebaseToken)
+    return response.data
   }
 
   async loginWithOtp(input: {
@@ -315,10 +364,24 @@ class HelpyApiClient {
     })).data
   }
 
-  async getServices(categoryId: number, page = 1, limit = 100) {
-    const values = { page, category_id: categoryId, service_id: 0, sort_by: 'recently_added', limit }
+  async getServices(categoryId: number, page = 1, limit = 100, filters: HelpyCatalogFilters = {}, coordinates?: { latitude: number; longitude: number }) {
+    const values = {
+      page, category_id: categoryId, service_id: filters.serviceId ?? 0,
+      sort_by: filters.sortBy ?? 'recently_added', limit,
+      min_price: filters.minPrice, max_price: filters.maxPrice, distance: filters.distance,
+    }
     return (await this.request<Paginated<HelpyService>>('featured-services-List', {
-      method: 'POST', query: values, form: values,
+      method: 'POST', query: values, form: values, coordinates,
+    })).data
+  }
+
+  async getServiceTypes(categoryId: number) {
+    return (await this.request<Array<Record<string, unknown>>>('get-services-list', { query: { category_id: categoryId } })).data
+  }
+
+  async searchServices(search: string, coordinates?: { latitude: number; longitude: number }) {
+    return (await this.request<HelpyService[]>('global-search', {
+      method: 'POST', form: { search }, coordinates,
     })).data
   }
 
@@ -331,6 +394,13 @@ class HelpyApiClient {
     return (await this.request<unknown[]>('get-reviews-list', {
       method: 'POST',
       form: { service_vendor_mapp_id: serviceVendorMapId, rating, revieImageSize: '100_100', userImageSize: '100_100' },
+    })).data
+  }
+
+  async getReviewsPage(serviceVendorMapId: number, rating = 0, page = 1) {
+    return (await this.request<Paginated<Record<string, unknown>>>('get-reviews-list', {
+      method: 'POST',
+      form: { service_vendor_mapp_id: serviceVendorMapId, rating, page, revieImageSize: '100_100', userImageSize: '100_100' },
     })).data
   }
 
@@ -353,10 +423,20 @@ class HelpyApiClient {
     })).data
   }
 
-  async bookingPreflight(finalPrice: number) {
-    return (await this.request<{ next_step: string; shortage_amount: string; wallet_balance: string }>('booking-preflight', {
-      method: 'POST', form: { final_price: finalPrice },
+  async bookingPreflight(finalPrice: number, paymentType = '') {
+    return (await this.request<HelpyPreflight>('booking-preflight', {
+      method: 'POST', form: { final_price: finalPrice, payment_type: paymentType },
     })).data
+  }
+
+  async validatePromoCode(promocode: string, serviceVendorMapId: number) {
+    return (await this.request<HelpyPromo>('validate-promocode', {
+      method: 'POST', form: { promocode, service_vendor_mapp_id: serviceVendorMapId },
+    })).data
+  }
+
+  async checkCashAvailable(vendorId: number) {
+    return (await this.request<{ isCashEnabled: boolean }>('check-COD-available', { query: { vendor_id: vendorId } })).data
   }
 
   async getStates() {
@@ -463,10 +543,10 @@ class HelpyApiClient {
         locality_or_street_ar: '',
         landmark: input.landmark || '',
         landmark_ar: '',
-        latitude: input.latitude ?? 25.2854,
-        latitute: input.latitude ?? 25.2854,
-        longitude: input.longitude ?? 51.5310,
-        is_default: 0,
+        latitude: input.latitude,
+        latitute: input.latitude,
+        longitude: input.longitude,
+        is_default: input.isDefault ? 1 : 0,
       },
     })).data
   }

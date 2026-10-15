@@ -119,11 +119,11 @@ export default function DesktopBannerCarousel({ navigate }: { navigate: Navigate
     })
   }
 
-  if (loading && !banners.length) return <section className="grid h-[230px] place-items-center rounded-[24px] bg-white ring-1 ring-[#e5edf8] sm:h-[250px] lg:h-[230px] xl:h-[236px]"><span className="text-sm font-black text-[#71809a]">Loading featured offers…</span></section>
+  if (loading && !banners.length) return <section role="status" aria-label="Loading featured offers" className="h-[160px] animate-pulse rounded-[24px] bg-[#e5edfa] sm:h-[210px] lg:h-[230px] xl:h-[236px]"/>
   if (!banners.length) return null
 
   return <section
-    className="group/carousel relative h-[230px] overflow-hidden sm:h-[250px] lg:h-[230px] xl:h-[236px]"
+    className="group/carousel relative h-[160px] overflow-hidden sm:h-[210px] lg:h-[230px] xl:h-[236px]"
     aria-roledescription="carousel"
     aria-label="Featured services and offers"
     onMouseEnter={() => { pausedRef.current = true }}
@@ -153,7 +153,7 @@ export default function DesktopBannerCarousel({ navigate }: { navigate: Navigate
             fallback={<span className="flex h-full w-full flex-col justify-end bg-gradient-to-br from-[#071b52] to-[#0967ff] p-6 text-white"><span className="text-xs font-bold uppercase tracking-[.16em] text-blue-200">Helpy</span><span className="mt-2 text-xl font-black">{banner.name}</span></span>}
             alt={banner.name}
             draggable={false}
-            className="h-full w-full object-cover object-center"
+            className="h-full w-full object-contain object-center sm:object-cover"
           />
           <span className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-white/15"/>
         </button>
