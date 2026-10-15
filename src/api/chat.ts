@@ -1,14 +1,15 @@
-import { getHelpyAccessToken } from './helpy'
+import { clearHelpyFirebaseCustomToken, getHelpyAccessToken, getHelpyFirebaseCustomToken } from './helpy'
 
 const env = import.meta.env as Record<string, string | undefined>
 const projectId = env.VITE_HELPY_FIREBASE_PROJECT_ID || 'helpy-61026'
 const apiKey = env.VITE_HELPY_FIREBASE_API_KEY || ''
 const tokenEndpoint = env.VITE_HELPY_CHAT_TOKEN_ENDPOINT || ''
+const FIREBASE_SESSION_KEY = 'helpy_firebase_session'
 
 export type ChatUser = { id: string; name: string; email: string; image: string; about: string; online: boolean; lastActive: string }
 export type ChatMessage = { id: string; fromId: string; toId: string; body: string; sent: string; read: string; type: string }
 
-type FirebaseSession = { idToken: string; localId: string; expiresAt: number }
+type FirebaseSession = { idToken: string; localId: string; refreshToken: string; expiresAt: number }
 type FirestoreValue = { stringValue?: string; integerValue?: string; booleanValue?: boolean; timestampValue?: string }
 type FirestoreDocument = { name: string; fields?: Record<string, FirestoreValue> }
 
@@ -16,21 +17,57 @@ let session: FirebaseSession | null = null
 const field = (document: FirestoreDocument, key: string) => document.fields?.[key]
 const stringField = (document: FirestoreDocument, key: string) => String(field(document, key)?.stringValue ?? field(document, key)?.integerValue ?? '')
 
+function readStoredSession() {
+  if (session) return session
+  try {
+    const value = window.sessionStorage.getItem(FIREBASE_SESSION_KEY)
+    const parsed = value ? JSON.parse(value) as FirebaseSession : null
+    if (parsed?.idToken && parsed.localId) session = parsed
+  } catch { /* Start a fresh Firebase session. */ }
+  return session
+}
+
+function saveSession(value: FirebaseSession) {
+  session = value
+  window.sessionStorage.setItem(FIREBASE_SESSION_KEY, JSON.stringify(value))
+  return value
+}
+
+async function refreshSession(value: FirebaseSession) {
+  if (!value.refreshToken) return null
+  const response = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: value.refreshToken }),
+  })
+  const payload = await response.json().catch(() => null) as { id_token?: string; user_id?: string; refresh_token?: string; expires_in?: string } | null
+  if (!response.ok || !payload?.id_token || !payload.user_id) return null
+  return saveSession({ idToken: payload.id_token, localId: payload.user_id, refreshToken: payload.refresh_token || value.refreshToken, expiresAt: Date.now() + Number(payload.expires_in || 3600) * 1000 })
+}
+
 async function connect() {
-  if (session && session.expiresAt > Date.now() + 60_000) return session
-  if (!tokenEndpoint) throw new Error('Secure chat authentication is not configured yet.')
+  const stored = readStoredSession()
+  if (stored && stored.expiresAt > Date.now() + 60_000) return stored
   if (!apiKey) throw new Error('Firebase web configuration is not configured yet.')
+  if (stored) {
+    const refreshed = await refreshSession(stored)
+    if (refreshed) return refreshed
+  }
   const accessToken = getHelpyAccessToken()
   if (!accessToken) throw new Error('Sign in to Helpy before opening messages.')
-  const tokenResponse = await fetch(tokenEndpoint, { headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` } })
-  const tokenPayload = await tokenResponse.json().catch(() => null) as { customToken?: string; token?: string; message?: string } | null
-  const customToken = tokenPayload?.customToken || tokenPayload?.token
-  if (!tokenResponse.ok || !customToken) throw new Error(tokenPayload?.message || 'The chat token endpoint did not return a Firebase custom token.')
+  let customToken = getHelpyFirebaseCustomToken()
+  if (!customToken && tokenEndpoint) {
+    const tokenResponse = await fetch(tokenEndpoint, { headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` } })
+    const tokenPayload = await tokenResponse.json().catch(() => null) as { customToken?: string; token?: string; message?: string } | null
+    customToken = tokenPayload?.customToken || tokenPayload?.token || null
+    if (!tokenResponse.ok || !customToken) throw new Error(tokenPayload?.message || 'The chat token endpoint did not return a Firebase custom token.')
+  }
+  if (!customToken) throw new Error('Sign in again to connect your Helpy messages.')
   const authResponse = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${encodeURIComponent(apiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: customToken, returnSecureToken: true }) })
-  const auth = await authResponse.json().catch(() => null) as { idToken?: string; localId?: string; expiresIn?: string; error?: { message?: string } } | null
+  const auth = await authResponse.json().catch(() => null) as { idToken?: string; localId?: string; refreshToken?: string; expiresIn?: string; error?: { message?: string } } | null
   if (!authResponse.ok || !auth?.idToken || !auth.localId) throw new Error(auth?.error?.message || 'Firebase chat sign-in failed.')
-  session = { idToken: auth.idToken, localId: auth.localId, expiresAt: Date.now() + Number(auth.expiresIn || 3600) * 1000 }
-  return session
+  clearHelpyFirebaseCustomToken()
+  return saveSession({ idToken: auth.idToken, localId: auth.localId, refreshToken: auth.refreshToken || '', expiresAt: Date.now() + Number(auth.expiresIn || 3600) * 1000 })
 }
 
 async function firestore(path: string, init?: RequestInit) {
@@ -42,7 +79,7 @@ async function firestore(path: string, init?: RequestInit) {
 }
 
 export const helpyChat = {
-  get configured() { return Boolean(tokenEndpoint) },
+  get configured() { return Boolean(apiKey && (readStoredSession() || getHelpyFirebaseCustomToken() || tokenEndpoint)) },
   async getUsers() {
     const auth = await connect()
     const payload = await firestore('users?pageSize=100') as { documents?: FirestoreDocument[] }

@@ -14,14 +14,14 @@ This document records the September 2026 audit of the customer PWA and its deskt
 | Service detail | Single service with date/time selection | Provider-specific multi-service selection, optional extras, Scrubs equipment choice, dates, times and calculated total |
 | Booking and checkout | Basic location and payment selection | Selected services/extras, saved or pinned location flow, payment methods, new-card validation, secure-processing state and booking creation |
 | Booking success | Present | Preserved, including order and provider-message actions |
-| My bookings | Static examples | Active/completed tabs, shared newly-created bookings, full detail/payment summary, provider messaging and reviews |
-| Messages | Short static list | Search, All/Bookings/Offers/Support filters, booking-generated conversations and provider threads |
+| My bookings | Live Laravel list and detail screens | Cancellation/reschedule/review writes remain gated |
+| Messages | Firebase conversations using the login-issued custom token | Public Firebase client configuration is still required |
 | Reviews | Small static sample | Provider-aware reviews with rating and service filters plus verified-booking labels |
 | Profile | Simplified account cards | Editable profile, preferences, verified state and account shortcuts |
 | Wallet | Read-only summary | Balance, top-up, withdrawal, payment choice, success feedback and transaction history |
-| Favourites | Static list | Removable saved providers with direct booking actions |
-| Addresses/location | Basic picker | Add/edit/delete/default saved addresses plus the booking location picker |
-| Notifications | Static rows | Unread state, mark-all-read and actions into booking, chat, wallet, reviews and deals |
+| Favourites | Local-only saved businesses | Backend contract deliberately deferred |
+| Addresses/location | Live add/edit/delete/default addresses plus map picker | Filled variants need device QA |
+| Notifications | Live list, mark-one/all-read and pull-to-refresh | Contextual deep links can follow notification types |
 | Help and contact | Contact details | Live chat, phone/email, routed enquiry form and success feedback |
 | Terms and privacy | Short copy | Complete six-section, navigable plain-language documents |
 | Pending review prompt | Missing | Desktop-native post-booking prompt connected to the shared booking state |
@@ -39,4 +39,4 @@ This document records the September 2026 audit of the customer PWA and its deskt
 - Mobile bottom navigation remains the horizontal desktop navigation.
 - Long lists use responsive grids, desktop search/filter bars and two-column detail layouts.
 - The existing Helpy palette, rounded card language, spacing system and top header are preserved.
-- Data remains client-side demo state, matching the current PWA architecture. Backend persistence, real payment processing and live messaging require API integration and are outside visual/function parity.
+- Laravel-backed account/catalog state is shared across web and mobile. Final booking/payment writes remain gated until the selected sandbox payment path is approved.

@@ -1,10 +1,10 @@
 # Helpy customer website — agent handoff
 
-Last updated: 27 September 2026.
+Last updated: 4 October 2026.
 
 ## Goal and current boundary
 
-The desktop website is being migrated from demonstration records to contracts observed in the Helpy Android APK. Discovery, businesses, business services, availability, email OTP authentication, profile reads/edits, notifications, bookings, wallet reads, favourites reads and addresses use a shared live data layer.
+The Laravel checkout at `/Users/mo/Downloads/helpy-backend-abdullah` is the authoritative API contract. Discovery, business services, availability, email OTP authentication, profile reads/edits, notifications, bookings, wallet reads, chat authentication and addresses now follow its routes, validation and nested responses. Favourites remain intentionally local-only.
 
 The booking workflow intentionally stops at final review. Do not call `/add-booking`, create a payment, or display success until staging and payment sandbox contracts are supplied.
 
@@ -13,7 +13,7 @@ The booking workflow intentionally stops at final review. Do not call `/add-book
 ```powershell
 npm install
 Copy-Item .env.example .env
-# Set VITE_HELPY_API_ENABLED=true in .env
+# The backend is always enabled; optionally override VITE_HELPY_API_BASE in .env
 npm run dev -- --host 127.0.0.1 --port 4173
 npx tsc --noEmit
 npm run build
@@ -49,7 +49,7 @@ Catalog loading:
 5. Search/category views show businesses; business profiles own service lists.
 6. Service/date selection requests `/vendor-availability`.
 
-After OTP login, profile, addresses, booking statuses 0/1/2, favourites, wallet history and notifications load in parallel.
+After OTP login, profile, addresses, bookings, wallet history and notifications load from the Laravel-defined routes. The login response's Firebase custom token is retained only long enough to establish a client Firebase session.
 
 ## Backend-driven desktop flows
 
@@ -60,11 +60,11 @@ After OTP login, profile, addresses, booking statuses 0/1/2, favourites, wallet 
 - Profile: designed banner/cards/form using profile, wallet, booking, favourite and notification data.
 - Notifications: designed list using backend title/body/time/read state and contextual routing.
 - Bookings: backend status lists and detail refresh.
-- Messages: two-pane design with Firestore adapter; secure token endpoint required.
+- Messages: Firestore adapter using the backend-issued login custom token; public Firebase client configuration is required.
 
 ## Contract caveats
 
-- Profile/address/notification mutations and booking detail need staging verification.
+- Backend mutations and populated booking variants still need staging/device verification.
 - The analysis account had no bookings, addresses or favourites; populated variants remain unverified.
 - Catalog requests page 1, limit 100 for every category. Add pagination/consolidation.
 - `lan` and `long` default to Doha. Connect browser/selected-location coordinates.
@@ -74,13 +74,13 @@ After OTP login, profile, addresses, booking statuses 0/1/2, favourites, wallet 
 
 ## Messaging continuation
 
-Never copy the APK's exposed Firebase Admin key into Vite code. Build the endpoint in `CHAT_BACKEND_CONTRACT.md`, rotate the compromised key, configure `VITE_HELPY_CHAT_TOKEN_ENDPOINT`, and test Firestore rules with two staging users. The browser adapter then loads users, polls messages and sends APK-compatible text messages.
+Never copy a Firebase Admin credential into client code. Configure the public web API key (`VITE_HELPY_FIREBASE_API_KEY` / `EXPO_PUBLIC_HELPY_FIREBASE_API_KEY`) and test Firestore rules with two staging users. The login endpoint already returns the required custom token.
 
 ## Recommended next work
 
-1. Obtain backend source/OpenAPI and a staging account.
-2. Implement the secure chat-token endpoint.
-3. Capture populated booking/address/favourite/notification responses and tighten mappings.
+1. Re-authenticate the Firebase CLI and retrieve the public client configuration for project `helpy-61026`.
+2. Run backend tests in an environment with PHP/Composer; this workstation has no PHP binary.
+3. Capture populated booking/address/notification responses and tighten presentation edge cases.
 4. Connect global search, pagination and authoritative business detail loading.
 5. Add favourite toggle, review creation, unseen badges and logout.
 6. Implement cancellation/rescheduling in staging.

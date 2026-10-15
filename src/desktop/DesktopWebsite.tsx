@@ -2,24 +2,25 @@ import {
   ArrowLeft, ArrowRight, Bell, Bookmark, CalendarDays, Check, CheckCircle2,
   ChevronDown, ChevronRight, CircleHelp, Clock3, CreditCard, FileText, Heart,
   Home, Inbox, Landmark, LayoutGrid, Mail, MapPin, Menu, MessageCircle, MoreHorizontal,
-  PackageCheck, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Star,
+  PackageCheck, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Star, LogOut,
   UserRound, Wallet, X, Zap, type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { type Screen, useNav } from '../context/NavContext'
 import DesktopAccountViews from './DesktopAccountViews'
 import DesktopBannerCarousel from './DesktopBannerCarousel'
-import { requestLoginOtp, verifyLoginOtp } from '../api/auth'
-import { helpyApiEnabled } from '../api/helpy'
+import DesktopCheckout from './DesktopCheckout'
+import DesktopReviews from './DesktopReviews'
+import { getRegistrationDetails, requestLoginOtp, requestRegistrationOtp, verifyLoginOtp, verifyRegistrationOtp } from '../api/auth'
+import { hasHelpyUserSession, helpyApi } from '../api/helpy'
 import { useHelpyData } from '../context/HelpyDataContext'
-import { LiveBackendView, LiveDesktopAccount, LiveDesktopBookings, LiveDesktopCheckout, LiveDesktopExplore, LiveDesktopHome, LiveDesktopService, LiveMessages } from './DesktopLiveViews'
+import { LiveBackendView, LiveDesktopAccount, LiveDesktopBookings, LiveDesktopCheckout, LiveDesktopExplore, LiveDesktopHome, LiveDesktopService, LiveLocationChoice, LiveMessages } from './DesktopLiveViews'
 import {
   DesktopBookings,
   DesktopDiscoverySections,
   DesktopExploreView,
   DesktopMessages,
   DesktopProviderBooking,
-  DesktopReviews,
 } from './DesktopParityViews'
 
 type Service = {
@@ -77,7 +78,6 @@ const CATEGORIES = [
 const NAV_ITEMS: Array<{ screen: Screen; label: string; icon: typeof Home }> = [
   { screen: 'home', label: 'Discover', icon: Home },
   { screen: 'all-services', label: 'Browse services', icon: LayoutGrid },
-  { screen: 'deals', label: 'Deals & offers', icon: Sparkles },
   { screen: 'orders', label: 'My bookings', icon: CalendarDays },
   { screen: 'chat', label: 'Messages', icon: MessageCircle },
 ]
@@ -90,19 +90,20 @@ const ACCOUNT_ITEMS: Array<{ screen: Screen; label: string; icon: typeof UserRou
 
 export default function DesktopWebsite() {
   const { screen, params, navigate, goBack, canGoBack, login } = useNav()
+  const topLevelScreens: Screen[] = ['home', 'all-services', 'providers', 'deals', 'orders', 'order-detail', 'chat', 'profile', 'notifications', 'wallet', 'favorites', 'addresses']
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [screen])
 
   if (screen === 'splash') return <WelcomeScreen navigate={navigate} />
-  if (screen === 'login' || screen === 'verify') return <DesktopAuthScreen screen={screen} params={params} navigate={navigate} goBack={goBack} login={login} />
+  if (screen === 'login' || screen === 'register' || screen === 'verify') return <DesktopAuthScreen screen={screen} params={params} navigate={navigate} goBack={goBack} login={login} />
 
   return <div className="website-shell min-h-screen bg-[#f4f7fc] text-[#102044]">
     <DesktopTopBar screen={screen} navigate={navigate} />
     <main className="min-w-0 px-4 py-5 sm:px-7 lg:px-10 lg:py-7">
         <div className="mx-auto max-w-[1540px]">
-          {canGoBack && screen !== 'home' && <button onClick={goBack} className="mb-5 inline-flex items-center gap-2 text-sm font-black text-[#5d6c8b] transition hover:text-[#0967ff]"><ArrowLeft size={16} /> Back</button>}
+          {canGoBack && !topLevelScreens.includes(screen) && <button onClick={goBack} className="mb-5 inline-flex items-center gap-2 text-sm font-black text-[#5d6c8b] transition hover:text-[#0967ff]"><ArrowLeft size={16} /> Back</button>}
           <DesktopRoute screen={screen} params={params} navigate={navigate} />
         </div>
     </main>
@@ -110,38 +111,52 @@ export default function DesktopWebsite() {
 }
 
 function DesktopTopBar({ screen, navigate }: { screen: Screen; navigate: (screen: Screen, params?: any) => void }) {
-  const { profile } = useHelpyData()
+  const { profile, notifications, accountLoading, selectedAddress } = useHelpyData()
   const [query, setQuery] = useState('')
   const [profileOpen, setProfileOpen] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
   const submit = () => navigate('all-services', { query })
+  const hasUserSession = hasHelpyUserSession()
+  const unreadNotifications = hasUserSession && !accountLoading ? notifications.filter(value => {
+    const row = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+    return !row.read_at && row.is_read !== 1 && row.is_read !== true && row.status !== 'read'
+  }).length : 0
   const selected = (target: Screen) => screen === target || (target === 'all-services' && ['categories', 'category-services', 'providers', 'offers-events', 'service-detail'].includes(screen))
   const accountLinks: Array<{ screen: Screen; label: string; icon: typeof UserRound }> = [
     { screen: 'profile', label: 'My profile', icon: UserRound },
     { screen: 'wallet', label: 'Wallet & payments', icon: Wallet },
     { screen: 'favorites', label: 'Saved services', icon: Heart },
     { screen: 'addresses', label: 'Saved locations', icon: MapPin },
-    { screen: 'notifications', label: 'Notifications', icon: Bell },
   ]
   const profileName = profile?.name || 'My account'
-  const profileInitials = profile?.name ? profile.name.split(/\s+/).map(word => word[0]).join('').slice(0, 2).toUpperCase() : <UserRound size={18}/>
+  const signOut = () => {
+    helpyApi.clearSession()
+    setProfileOpen(false)
+    window.location.assign(`${window.location.pathname}${window.location.search}#home`)
+  }
   return <header className="sticky top-0 z-50 border-b border-[#e2eaf6] bg-white/95 backdrop-blur-xl">
-    <div className="mx-auto flex h-[92px] max-w-[1840px] items-center gap-4 px-5 sm:px-8 lg:px-12 2xl:gap-5">
-      <button onClick={() => navigate('home')} className="relative -left-3 grid h-16 w-[96px] shrink-0 place-items-center self-center bg-transparent p-0 shadow-none transition-transform duration-300 hover:scale-[1.02] hover:bg-transparent hover:shadow-none" aria-label="Helpy home"><img src="/assets/helpy-logo-transparent.png" alt="Helpy" className="block h-14 w-[92px] object-contain object-center"/></button>
-      <div className="relative hidden w-[280px] shrink-0 md:block 2xl:w-[340px]"><Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7e8da9]"/><input value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => event.key === 'Enter' && submit()} placeholder="Search services, providers and more" className="h-12 w-full rounded-2xl border border-[#dfe8f5] bg-[#f8faff] pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-[#0967ff] focus:bg-white focus:ring-4 focus:ring-blue-50" /></div>
-      <nav className="hidden min-w-0 flex-1 items-center justify-center gap-2 xl:flex 2xl:gap-3" aria-label="Explore">
-        {NAV_ITEMS.map(item => <button key={item.screen} onClick={() => navigate(item.screen)} className={`inline-flex h-11 shrink-0 items-center gap-2 rounded-xl px-2.5 text-[12px] font-black transition 2xl:px-3 2xl:text-[13px] ${selected(item.screen) ? 'bg-[#0967ff] text-white shadow-lg shadow-blue-200' : 'text-[#596984] hover:bg-[#f3f7ff] hover:text-[#0967ff]'}`}><item.icon size={17}/><span>{item.label}</span></button>)}
+    <div className="mx-auto flex h-[82px] max-w-[1840px] items-center gap-2 px-4 sm:gap-3 sm:px-5 lg:px-7 2xl:gap-5">
+      <button onClick={() => navigate('home')} className="relative grid h-14 w-[82px] shrink-0 place-items-center self-center bg-transparent p-0 shadow-none transition-transform duration-300 hover:bg-transparent hover:shadow-none" aria-label="Helpy home"><img src="/assets/helpy-logo-transparent.png" alt="Helpy" className="block h-12 w-[78px] object-contain object-center"/></button>
+      <div className="relative hidden min-w-0 flex-1 md:block"><Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7e8da9]"/><input value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => event.key === 'Enter' && submit()} placeholder="Search services, providers and more" className="h-11 w-full rounded-2xl border border-[#dfe8f5] bg-[#f8faff] pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-[#0967ff] focus:bg-white focus:ring-4 focus:ring-blue-50" /></div>
+      <nav className="hidden shrink-0 items-center gap-1 md:flex xl:gap-1.5 2xl:gap-3" aria-label="Explore">
+        {NAV_ITEMS.map(item => <button key={item.screen} onClick={() => navigate(item.screen)} aria-label={item.label} title={item.label} className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[12px] font-black transition 2xl:h-11 2xl:w-auto 2xl:gap-2 2xl:px-3 2xl:text-[13px] ${selected(item.screen) ? 'bg-[#0967ff] text-white shadow-lg shadow-blue-200' : 'text-[#596984] hover:bg-[#f3f7ff] hover:text-[#0967ff]'}`}><item.icon size={17}/><span className="hidden 2xl:inline">{item.label}</span></button>)}
       </nav>
-      <button onClick={() => setNavOpen(value => !value)} className="ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#52617d] transition hover:bg-blue-50 xl:hidden" aria-label="Open navigation"><Menu size={21}/></button>
-      <div className="ml-auto flex shrink-0 items-center gap-2 border-l border-[#e5ecf6] pl-3 2xl:pl-5">
-        <button onClick={() => navigate('location')} className="hidden items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-bold text-[#52617d] transition hover:bg-blue-50 lg:flex"><MapPin size={17} className="text-[#0967ff]"/>Doha</button>
-        <button onClick={() => navigate('notifications')} className="relative rounded-xl p-2.5 text-[#52617d] transition hover:bg-blue-50" aria-label="Notifications"><Bell size={19}/><span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#ff5c7a] ring-2 ring-white"/></button>
-        <button onClick={() => navigate('profile')} className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0967ff] to-[#5f8cff] text-white shadow-md shadow-blue-200" aria-label="Open profile"><UserRound size={20}/></button>
-        <button onClick={() => setProfileOpen(value => !value)} className={`rounded-xl p-2 text-[#52617d] transition hover:bg-blue-50 ${profileOpen ? 'bg-blue-50 text-[#0967ff]' : ''}`} aria-label="Open account menu"><ChevronDown size={18} className={`transition ${profileOpen ? 'rotate-180' : ''}`}/></button>
+      <button onClick={() => setNavOpen(value => !value)} className="ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#52617d] transition hover:bg-blue-50 md:hidden" aria-label="Open navigation"><Menu size={21}/></button>
+      <button onClick={() => navigate('all-services')} className="ml-auto rounded-xl p-2 text-[#52617d] md:hidden" aria-label="Search services"><Search size={19}/></button>
+      <div className="ml-auto flex shrink-0 items-center gap-2 pl-3 2xl:pl-5">
+        <div className="flex items-center gap-2 border-l border-[#e5ecf6] pl-3 2xl:pl-5">
+        <button onClick={() => navigate('location')} className="hidden max-w-[190px] items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-bold text-[#52617d] transition hover:bg-blue-50 lg:flex"><MapPin size={17} className="shrink-0 text-[#0967ff]"/><span className="truncate">{selectedAddress?.title || 'Choose location'}</span></button>
+        <button onClick={() => navigate('location')} className="rounded-xl p-2 text-[#52617d] lg:hidden" aria-label={selectedAddress ? `Location: ${selectedAddress.title}` : 'Choose location'}><MapPin size={19}/></button>
+        <button onClick={() => navigate('notifications')} className="relative rounded-xl p-2.5 text-[#52617d] transition hover:bg-blue-50" aria-label="Notifications" title="Notifications"><Bell size={19}/>{unreadNotifications > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#ff5c7a] ring-2 ring-white"/>}</button>
+        </div>
+        <div className="h-8 border-l border-[#e5ecf6]" aria-hidden="true"/>
+        <div className="flex items-center gap-2">
+        {hasUserSession ? <><button onClick={() => navigate('profile')} className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0967ff] to-[#5f8cff] text-white shadow-md shadow-blue-200" aria-label="Open profile"><UserRound size={20}/></button><button onClick={() => setProfileOpen(value => !value)} className={`rounded-xl p-2 text-[#52617d] transition hover:bg-blue-50 ${profileOpen ? 'bg-blue-50 text-[#0967ff]' : ''}`} aria-label="Open account menu"><ChevronDown size={18} className={`transition ${profileOpen ? 'rotate-180' : ''}`}/></button></> : <button onClick={() => navigate('login')} className="inline-flex h-11 items-center gap-2 rounded-xl bg-gradient-to-br from-[#0967ff] to-[#5f8cff] px-3 text-sm font-black text-white shadow-md shadow-blue-200" aria-label="Sign in"><UserRound size={18}/><span className="hidden md:inline">Sign in</span></button>}
+        </div>
       </div>
     </div>
-    {navOpen && <div className="border-t border-[#edf1f7] bg-white px-4 py-3 shadow-lg xl:hidden"><div className="mx-auto flex max-w-[1540px] gap-2 overflow-x-auto">{NAV_ITEMS.map(item => <button key={item.screen} onClick={() => { navigate(item.screen); setNavOpen(false) }} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-xs font-black ${selected(item.screen) ? 'bg-[#0967ff] text-white' : 'bg-[#f4f7fc] text-[#596984]'}`}><item.icon size={17}/>{item.label}</button>)}</div></div>}
-    {profileOpen && <><button onClick={() => setProfileOpen(false)} className="fixed inset-0 top-[92px] z-40" aria-label="Close account menu"/><div className="absolute right-5 top-[82px] z-50 w-[290px] overflow-hidden rounded-[24px] border border-[#e2eaf5] bg-white p-2 shadow-2xl shadow-[#102044]/15 lg:right-12"><button onClick={() => { navigate('profile'); setProfileOpen(false) }} className="flex w-full items-center gap-3 rounded-2xl bg-[#f3f8ff] p-3 text-left"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0967ff] text-sm font-black text-white">{profileInitials}</span><span><span className="block text-sm font-black">{profileName}</span><span className="mt-0.5 block text-xs font-semibold text-[#7b89a1]">View profile & account</span></span></button><div className="my-2 border-t border-[#edf1f7]"/>{accountLinks.map(link => <button key={link.screen} onClick={() => { navigate(link.screen); setProfileOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-[#53627c] transition hover:bg-[#f4f8ff] hover:text-[#0967ff]"><link.icon size={18}/>{link.label}</button>)}<div className="my-2 border-t border-[#edf1f7]"/><button onClick={() => { navigate('contact-us'); setProfileOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-[#53627c] transition hover:bg-[#f4f8ff] hover:text-[#0967ff]"><CircleHelp size={18}/>Help centre</button></div></>}
+    {navOpen && <div className="border-t border-[#edf1f7] bg-white px-4 py-3 shadow-lg md:hidden"><div className="mx-auto flex max-w-[1540px] gap-2 overflow-x-auto">{NAV_ITEMS.map(item => <button key={item.screen} onClick={() => { navigate(item.screen); setNavOpen(false) }} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-xs font-black ${selected(item.screen) ? 'bg-[#0967ff] text-white' : 'bg-[#f4f7fc] text-[#596984]'}`}><item.icon size={17}/>{item.label}</button>)}</div></div>}
+    {profileOpen && hasUserSession && <><button onClick={() => setProfileOpen(false)} className="fixed inset-0 top-[82px] z-40" aria-label="Close account menu"/><div className="absolute right-5 top-[74px] z-50 w-[290px] overflow-hidden rounded-[24px] border border-[#e2eaf5] bg-white p-2 shadow-2xl shadow-[#102044]/15 lg:right-12"><button onClick={() => { navigate('profile'); setProfileOpen(false) }} className="flex w-full items-center gap-3 rounded-2xl bg-[#f3f8ff] p-3 text-left"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0967ff] text-white shadow-sm"><UserRound size={20}/></span><span><span className="block text-sm font-black">{profileName}</span><span className="mt-0.5 block text-xs font-semibold text-[#7b89a1]">View profile & account</span></span></button><div className="my-2 border-t border-[#edf1f7]"/>{accountLinks.map(link => <button key={link.screen} onClick={() => { navigate(link.screen); setProfileOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-[#53627c] transition hover:bg-[#f4f8ff] hover:text-[#0967ff]"><link.icon size={18}/>{link.label}</button>)}<div className="my-2 border-t border-[#edf1f7]"/><button onClick={() => { navigate('contact-us'); setProfileOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-[#53627c] transition hover:bg-[#f4f8ff] hover:text-[#0967ff]"><CircleHelp size={18}/>Help centre</button><button onClick={signOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-[#53627c] transition hover:bg-[#f4f8ff] hover:text-[#0967ff]"><LogOut size={18}/>Sign out</button></div></>}
   </header>
 }
 
@@ -154,7 +169,7 @@ function TopBar({ navigate, onMenu }: { navigate: (screen: Screen, params?: any)
       <button onClick={onMenu} className="rounded-xl p-2 text-[#102044] transition hover:bg-blue-50 lg:hidden" aria-label="Open menu"><Menu size={22} /></button>
       <button onClick={() => navigate('home')} className="shrink-0 text-2xl font-black tracking-tight text-[#0967ff]">helpy<span className="text-[#102044]">.</span></button>
       <div className="relative hidden max-w-[440px] flex-1 md:block"><Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7e8da9]"/><input value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => event.key === 'Enter' && submit()} placeholder="Search services, providers and more" className="h-11 w-full rounded-xl border border-[#e0e8f5] bg-[#f8faff] pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-[#0967ff] focus:bg-white" /></div>
-      <div className="ml-auto flex items-center gap-2"><button onClick={() => setSearchOpen(true)} className="rounded-xl p-2.5 text-[#52617d] transition hover:bg-blue-50 md:hidden" aria-label="Search"><Search size={19} /></button><button onClick={() => navigate('location')} className="hidden items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#52617d] transition hover:bg-blue-50 sm:flex"><MapPin size={17} className="text-[#0967ff]" />Doha</button><button onClick={() => navigate('notifications')} className="relative rounded-xl p-2.5 text-[#52617d] transition hover:bg-blue-50" aria-label="Notifications"><Bell size={19} /><span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#ff5c7a] ring-2 ring-white" /></button><button onClick={() => navigate('profile')} className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#0967ff] to-[#5f8cff] text-sm font-black text-white shadow-md shadow-blue-200">SS</button></div>
+      <div className="ml-auto flex items-center gap-2"><button onClick={() => setSearchOpen(true)} className="rounded-xl p-2.5 text-[#52617d] transition hover:bg-blue-50 md:hidden" aria-label="Search"><Search size={19} /></button><button onClick={() => navigate('location')} className="hidden items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#52617d] transition hover:bg-blue-50 sm:flex"><MapPin size={17} className="text-[#0967ff]" />Doha</button><button onClick={() => navigate('notifications')} className="rounded-xl p-2.5 text-[#52617d] transition hover:bg-blue-50" aria-label="Notifications"><Bell size={19} /></button><button onClick={() => navigate('profile')} className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#0967ff] to-[#5f8cff] text-sm font-black text-white shadow-md shadow-blue-200">SS</button></div>
     </div>
     {searchOpen && <div className="border-t border-[#e4ebf7] bg-white p-3 md:hidden"><div className="mx-auto flex max-w-[1240px] gap-2"><input autoFocus value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => event.key === 'Enter' && submit()} placeholder="Search services" className="h-11 min-w-0 flex-1 rounded-xl bg-[#f4f7fc] px-4 text-sm font-semibold outline-none"/><button onClick={submit} className="rounded-xl bg-[#0967ff] px-4 text-sm font-black text-white">Go</button></div></div>}
   </header>
@@ -175,21 +190,19 @@ function DesktopRoute({ screen, params, navigate }: { screen: Screen; params: an
     case 'home': return <LiveDesktopHome navigate={navigate}/>
     case 'categories': case 'category-services': case 'all-services': case 'providers': case 'deals': case 'offers-events': return <LiveDesktopExplore screen={screen} params={params} navigate={navigate} />
     case 'service-detail': return <LiveDesktopService params={params} navigate={navigate} />
-    case 'booking-checkout': case 'glow-checkout': case 'booking-confirm': return <LiveDesktopCheckout params={params} navigate={navigate} />
+    case 'booking-checkout': case 'glow-checkout': case 'booking-confirm': return <DesktopCheckout params={params} navigate={navigate} />
     case 'booking-success': return <LiveBackendView screen={screen} params={params} navigate={navigate} />
-    case 'orders': case 'order-detail': return <LiveDesktopBookings params={params} navigate={navigate} />
+    case 'orders': case 'order-detail': return <LiveDesktopBookings screen={screen} params={params} navigate={navigate} />
     case 'chat': case 'chat-thread': return <LiveMessages params={params} navigate={navigate} />
-    case 'location': return <LiveDesktopAccount screen="addresses" navigate={navigate} />
-    case 'reviews': return <LiveBackendView screen={screen} params={params} navigate={navigate} />
-    case 'profile': case 'notifications': return <DesktopAccountViews screen={screen} navigate={navigate} />
-    case 'wallet': case 'favorites': case 'addresses': return <LiveDesktopAccount screen={screen} navigate={navigate} />
-    case 'contact-us': case 'terms': case 'privacy': return <LiveBackendView screen={screen} params={params} navigate={navigate} />
+    case 'location': return <LiveLocationChoice navigate={navigate} />
+    case 'reviews': return <DesktopReviews params={params} />
+    case 'profile': case 'notifications': case 'wallet': case 'favorites': case 'addresses': case 'contact-us': case 'terms': case 'privacy': return <DesktopAccountViews screen={screen} navigate={navigate} />
     default: return <LiveDesktopAccount screen="profile" navigate={navigate} />
   }
 }
 
 function WelcomeScreen({ navigate }: { navigate: (screen: Screen, params?: any) => void }) {
-  return <div className="relative min-h-screen overflow-hidden bg-[#071b52] text-white"><div className="absolute inset-0 opacity-60" style={{ backgroundImage: 'radial-gradient(circle at 10% 15%, #1679ff 0, transparent 28%), radial-gradient(circle at 85% 80%, #24c8b2 0, transparent 25%)' }}/><div className="relative mx-auto flex min-h-screen max-w-[1280px] flex-col px-6 py-8 sm:px-10"><div className="text-3xl font-black tracking-tight">helpy<span className="text-[#7cc6ff]">.</span></div><div className="my-auto grid items-center gap-10 py-12 lg:grid-cols-[1fr_.92fr]"><div><div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-black text-blue-100"><Sparkles size={14} /> Qatar’s everyday service platform</div><h1 className="mt-6 max-w-2xl text-5xl font-black leading-[.98] tracking-[-.06em] sm:text-7xl">Your day gets <span className="text-[#89d3ff]">easier</span> from here.</h1><p className="mt-6 max-w-xl text-lg leading-8 text-blue-100">Discover verified local professionals, make a booking in minutes, and keep every detail in one beautifully simple place.</p><div className="mt-8 flex flex-wrap gap-3"><button onClick={() => navigate('home')} className="rounded-2xl bg-white px-6 py-4 text-sm font-black text-[#0967ff] shadow-xl shadow-blue-950/30 transition hover:-translate-y-0.5">Explore services <ArrowRight size={17} className="ml-1 inline" /></button><button onClick={() => navigate('login')} className="rounded-2xl border border-white/25 bg-white/10 px-6 py-4 text-sm font-black text-white backdrop-blur transition hover:bg-white/20">Sign in</button></div></div><div className="relative mx-auto w-full max-w-[510px] overflow-hidden rounded-[34px] border border-white/15 shadow-2xl shadow-black/40"><img src="/assets/doha-katara-crescent-hero.png" alt="Doha city" className="h-[480px] w-full object-cover"/><div className="absolute inset-0 bg-gradient-to-t from-[#071b52]/85 via-transparent to-transparent"/><div className="absolute inset-x-7 bottom-7"><p className="text-sm font-black uppercase tracking-[.16em] text-[#bfe5ff]">One app. Every day.</p><p className="mt-2 text-2xl font-black">The right service, right when you need it.</p></div></div></div><p className="text-center text-xs font-bold text-blue-200/80">Trusted providers · Clear pricing · Book with confidence</p></div></div>
+  return <div className="relative min-h-screen overflow-hidden bg-[#071b52] text-white"><div className="absolute inset-0 opacity-60" style={{ backgroundImage: 'radial-gradient(circle at 10% 15%, #1679ff 0, transparent 28%), radial-gradient(circle at 85% 80%, #24c8b2 0, transparent 25%)' }}/><div className="relative mx-auto flex min-h-screen max-w-[1280px] flex-col px-6 py-8 sm:px-10"><div className="text-3xl font-black tracking-tight">helpy<span className="text-[#7cc6ff]">.</span></div><div className="my-auto grid items-center gap-10 py-12 lg:grid-cols-[1fr_.92fr]"><div><div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-black text-blue-100"><Sparkles size={14} /> Qatar’s everyday service platform</div><h1 className="mt-6 max-w-2xl text-5xl font-black leading-[.98] tracking-[-.06em] sm:text-7xl">Your day gets <span className="text-[#89d3ff]">easier</span> from here.</h1><p className="mt-6 max-w-xl text-lg leading-8 text-blue-100">Discover verified local professionals, make a booking in minutes, and keep every detail in one beautifully simple place.</p><div className="mt-8 flex flex-wrap gap-3"><button onClick={() => navigate('home')} className="rounded-2xl bg-white px-6 py-4 text-sm font-black text-[#0967ff] shadow-xl shadow-blue-950/30 transition">Explore services <ArrowRight size={17} className="ml-1 inline" /></button><button onClick={() => navigate('login')} className="rounded-2xl border border-white/25 bg-white/10 px-6 py-4 text-sm font-black text-white backdrop-blur transition hover:bg-white/20">Sign in</button></div></div><div className="relative mx-auto w-full max-w-[510px] overflow-hidden rounded-[34px] border border-white/15 shadow-2xl shadow-black/40"><img src="/assets/doha-katara-crescent-hero.png" alt="Doha city" className="h-[480px] w-full object-cover"/><div className="absolute inset-0 bg-gradient-to-t from-[#071b52]/85 via-transparent to-transparent"/><div className="absolute inset-x-7 bottom-7"><p className="text-sm font-black uppercase tracking-[.16em] text-[#bfe5ff]">One app. Every day.</p><p className="mt-2 text-2xl font-black">The right service, right when you need it.</p></div></div></div><p className="text-center text-xs font-bold text-blue-200/80">Trusted providers · Clear pricing · Book with confidence</p></div></div>
 }
 
 function AuthScreen({ screen, navigate, goBack }: { screen: Screen; navigate: (screen: Screen, params?: any) => void; goBack: () => void }) {
@@ -201,12 +214,21 @@ function AuthScreen({ screen, navigate, goBack }: { screen: Screen; navigate: (s
 }
 
 function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen: Screen; params: any; navigate: (screen: Screen, params?: any) => void; goBack: () => void; login: () => void }) {
-  const [email, setEmail] = useState(params?.email || '')
+  const savedRegistration = getRegistrationDetails()
+  const savedDraft = (() => { try { return JSON.parse(window.sessionStorage.getItem('helpy_registration_draft') || 'null') as { name?: string; email?: string; phone?: string } | null } catch { return null } })()
+  const [email, setEmail] = useState(params?.email || savedRegistration?.email || savedDraft?.email || '')
+  const [name, setName] = useState(savedRegistration?.name || savedDraft?.name || '')
+  const [phone, setPhone] = useState(savedRegistration?.phoneNumber || savedDraft?.phone || '')
   const [code, setCode] = useState(Array(6).fill(''))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const codeInputs = useRef<Array<HTMLInputElement | null>>([])
   const verifying = screen === 'verify'
+  const registering = screen === 'register' || params?.mode === 'register'
+
+  useEffect(() => {
+    if (screen === 'register') window.sessionStorage.setItem('helpy_registration_draft', JSON.stringify({ name, email, phone }))
+  }, [screen, name, email, phone])
 
   const sendCode = async () => {
     const value = email.trim().toLowerCase()
@@ -217,8 +239,17 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
     setLoading(true)
     setError('')
     try {
-      await requestLoginOtp(value)
-      navigate('verify', { email: value })
+      if (registering) {
+        if (!name.trim() || !/^(?:\+?974)?\d{8}$/.test(phone.replace(/[\s-]/g, ''))) {
+          setError('Enter your name and a valid Qatar mobile number.')
+          return
+        }
+        await requestRegistrationOtp({ name, email: value, phoneNumber: phone })
+        navigate('verify', { email: value, mode: 'register' })
+      } else {
+        await requestLoginOtp(value)
+        navigate('verify', { email: value, mode: 'login' })
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to send the verification code.')
     } finally {
@@ -236,9 +267,15 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
     setLoading(true)
     setError('')
     try {
-      const verified = await verifyLoginOtp(targetEmail, value)
-      if (verified) login()
-      else setError('That verification code is not valid.')
+      if (registering) {
+        await verifyRegistrationOtp(value)
+        window.sessionStorage.removeItem('helpy_registration_draft')
+        login()
+      } else {
+        const verified = await verifyLoginOtp(targetEmail, value)
+        if (verified) login()
+        else setError('That verification code is not valid.')
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to verify the code.')
     } finally {
@@ -249,12 +286,19 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
   const resendCode = async () => {
     setCode(Array(6).fill(''))
     setError('')
+    setLoading(true)
     try {
-      await requestLoginOtp((params?.email || email).trim().toLowerCase())
+      if (registering) {
+        const details = getRegistrationDetails()
+        if (!details) { navigate('register'); return }
+        await requestRegistrationOtp(details)
+      } else {
+        await requestLoginOtp((params?.email || email).trim().toLowerCase())
+      }
       codeInputs.current[0]?.focus()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to resend the code.')
-    }
+    } finally { setLoading(false) }
   }
 
   const updateCode = (value: string, index: number) => {
@@ -292,9 +336,10 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
     <div className="flex items-center justify-center px-5 py-12 sm:px-8">
       <div className="w-full max-w-[440px]">
         <button onClick={goBack} className="mb-10 inline-flex items-center gap-2 text-sm font-black text-[#64738f] transition hover:text-[#0967ff]"><ArrowLeft size={16}/> Back</button>
-        <p className="text-sm font-black uppercase tracking-[.14em] text-[#0967ff]">{verifying ? 'Almost there' : 'Welcome to Helpy'}</p>
-        <h2 className="mt-2 text-4xl font-black tracking-[-.045em]">{verifying ? 'Confirm your email' : 'Let’s get you started'}</h2>
-        <p className="mt-3 leading-7 text-[#63718b]">{verifying ? `We’ve sent a 6-digit code to ${params?.email || email || 'your email address'}.` : 'Enter your email address to receive a secure sign-in code.'}</p>
+        <p className="text-sm font-black uppercase tracking-[.14em] text-[#0967ff]">{verifying ? 'Almost there' : registering ? 'New account' : 'Welcome to Helpy'}</p>
+        <h2 className="mt-2 text-4xl font-black tracking-[-.045em]">{verifying ? 'Confirm your email' : registering ? 'Create your account' : 'Sign in'}</h2>
+        {params?.sessionExpired && <p role="status" className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Your session expired. Sign in again to continue where you left off.</p>}
+        <p className="mt-3 leading-7 text-[#63718b]">{verifying ? `We’ve sent a 6-digit code to ${params?.email || email || 'your email address'}.` : registering ? 'Enter your details, then verify your email to get started.' : 'Enter your email address to receive a secure sign-in code.'}</p>
         {verifying ? <>
           <div className="mt-8 flex justify-between gap-2 sm:gap-3" aria-label="Six-digit verification code">
             {code.map((digit, index) => <input key={index} ref={element => { codeInputs.current[index] = element }} value={digit} onChange={event => updateCode(event.target.value, index)} onKeyDown={event => handleCodeKeyDown(event, index)} onFocus={event => event.currentTarget.select()} inputMode="numeric" autoComplete={index === 0 ? 'one-time-code' : 'off'} maxLength={6} aria-label={`Digit ${index + 1} of 6`} className="h-14 w-11 rounded-xl border border-[#dfe8f5] bg-white text-center text-xl font-black outline-none transition sm:h-16 sm:w-14 sm:text-2xl focus:border-[#0967ff] focus:ring-4 focus:ring-blue-100" />)}
@@ -303,12 +348,14 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
           <button onClick={verifyCode} disabled={loading} className="mt-7 h-14 w-full rounded-2xl bg-[#0967ff] text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:bg-[#0759df] disabled:cursor-wait disabled:opacity-70">{loading ? 'Verifying…' : 'Verify & continue'}</button>
           <button onClick={resendCode} disabled={loading} className="mt-5 w-full text-sm font-black text-[#0967ff] disabled:opacity-60">Resend code</button>
         </> : <>
-          <label className="mt-8 block text-sm font-black">Email address</label>
+          {registering && <><label className="mt-8 block text-sm font-black">Your name</label><input value={name} onChange={event => setName(event.target.value)} autoComplete="name" className="mt-2 h-14 w-full rounded-2xl border border-[#dfe8f5] bg-white px-4 text-base font-bold outline-none focus:border-[#0967ff]" placeholder="Full name"/></>}
+          <label className={`${registering ? 'mt-5' : 'mt-8'} block text-sm font-black`}>Email address</label>
           <div className="mt-2 flex h-14 items-center rounded-2xl border border-[#dfe8f5] bg-white px-4 focus-within:border-[#0967ff] focus-within:ring-4 focus-within:ring-blue-100"><Mail size={18} className="mr-3 shrink-0 text-[#7e8da9]"/><input value={email} onChange={event => setEmail(event.target.value)} onKeyDown={event => event.key === 'Enter' && sendCode()} type="email" autoComplete="email" placeholder="you@example.com" className="min-w-0 flex-1 text-base font-bold outline-none"/></div>
+          {registering && <><label className="mt-5 block text-sm font-black">Mobile number</label><div className="mt-2 flex h-14 items-center rounded-2xl border border-[#dfe8f5] bg-white px-4"><span className="mr-3 border-r border-[#dfe8f5] pr-3 text-sm font-bold text-[#73809a]">+974</span><input value={phone.replace(/^974/, '')} onChange={event => setPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="55 123 456" className="min-w-0 flex-1 text-base font-bold outline-none"/></div><p className="mt-3 text-xs leading-5 text-[#73809a]">By creating an account you agree to Helpy’s <button onClick={() => navigate('terms')} className="text-[#0967ff] underline">Terms of service</button> and <button onClick={() => navigate('privacy')} className="text-[#0967ff] underline">Privacy policy</button>.</p></>}
           <p className="mt-3 text-sm font-semibold leading-6 text-[#73809a]">We’ll send a one-time verification code. No password is required.</p>
           {error && <p role="alert" className="mt-3 text-sm font-bold text-red-500">{error}</p>}
           <button onClick={sendCode} disabled={loading} className="mt-5 h-14 w-full rounded-2xl bg-[#0967ff] text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:bg-[#0759df] disabled:cursor-wait disabled:opacity-70">{loading ? 'Sending code…' : <>Continue <ArrowRight size={17} className="ml-1 inline" /></>}</button>
-          {!helpyApiEnabled && <p className="mt-3 text-center text-xs font-semibold text-[#8a97ab]">Demo mode uses verification code 123456.</p>}
+          <button onClick={() => navigate(registering ? 'login' : 'register')} className="mt-4 w-full text-sm font-bold text-[#0967ff]">{registering ? 'Already have an account? Sign in' : 'New to Helpy? Create an account'}</button>
         </>}
       </div>
     </div>
@@ -316,7 +363,7 @@ function DesktopAuthScreen({ screen, params, navigate, goBack, login }: { screen
 }
 
 function DesktopHome({ navigate }: { navigate: (screen: Screen, params?: any) => void }) {
-  return <div className="space-y-8"><DesktopBannerCarousel navigate={navigate}/><section><SectionTitle eyebrow="START WITH A CATEGORY" title="Your everyday, beautifully covered" action="View all" onAction={() => navigate('categories')} /><div className="grid grid-cols-2 gap-4 sm:grid-cols-4 xl:grid-cols-8">{CATEGORIES.slice(0, 8).map(category => <button key={category.id} onClick={() => navigate('category-services', { id: category.id, label: category.label })} className="group rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#e5edf8] transition hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-100"><div className="flex h-20 items-center justify-center overflow-hidden rounded-xl bg-[#f4f8ff]"><img src={category.image} alt="" loading="lazy" className="h-full w-full object-contain transition duration-300 group-hover:scale-110"/></div><p className="mt-3 text-sm font-black">{category.label}</p><p className="mt-1 text-[11px] font-bold text-[#8190aa]">{category.count}</p></button>)}</div></section><section className="grid gap-6 xl:grid-cols-[1.5fr_.82fr]"><div><SectionTitle eyebrow="TOP PICKS NEAR YOU" title="Worth booking this week" action="See all services" onAction={() => navigate('all-services')} /><div className="grid gap-5 md:grid-cols-2">{SERVICES.slice(0, 4).map(service => <ServiceCard key={service.id} service={service} navigate={navigate} />)}</div></div><aside className="rounded-[26px] bg-white p-6 shadow-sm ring-1 ring-[#e5edf8]"><div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-[.14em] text-[#0967ff]">Your next booking</p><h2 className="mt-1 text-xl font-black">Friday, 10:00 AM</h2></div><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-[#0967ff]"><CalendarDays size={20}/></div></div><div className="mt-5 rounded-2xl bg-[#f5f9ff] p-4"><div className="flex items-center gap-3"><img src="/assets/scrubs-leaf-logo-clean.png" alt="" className="h-10 w-10 rounded-xl object-cover"/><div><p className="text-sm font-black">Scrubs Cleaning</p><p className="text-xs font-bold text-[#71809a]">General cleaning · 2 hours</p></div></div><div className="mt-4 flex items-center justify-between border-t border-blue-100 pt-4"><span className="text-xs font-bold text-[#71809a]">West Bay, Doha</span><button onClick={() => navigate('orders')} className="text-xs font-black text-[#0967ff]">View booking</button></div></div><button onClick={() => navigate('all-services')} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-[#dbe8fb] py-3 text-sm font-black text-[#0967ff] transition hover:bg-blue-50"><Plus size={16}/> Book another service</button></aside></section></div>
+  return <div className="space-y-8"><DesktopBannerCarousel navigate={navigate}/><section><SectionTitle eyebrow="START WITH A CATEGORY" title="Your everyday, beautifully covered" action="View all" onAction={() => navigate('categories')} /><div className="grid grid-cols-2 gap-4 sm:grid-cols-4 xl:grid-cols-8">{CATEGORIES.slice(0, 8).map(category => <button key={category.id} onClick={() => navigate('category-services', { id: category.id, label: category.label })} className="group rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#e5edf8] transition"><div className="flex h-20 items-center justify-center overflow-hidden rounded-xl bg-[#f4f8ff]"><img src={category.image} alt="" loading="lazy" className="h-full w-full object-contain transition duration-300"/></div><p className="mt-3 text-sm font-black">{category.label}</p><p className="mt-1 text-[11px] font-bold text-[#8190aa]">{category.count}</p></button>)}</div></section><section className="grid gap-6 xl:grid-cols-[1.5fr_.82fr]"><div><SectionTitle eyebrow="TOP PICKS NEAR YOU" title="Worth booking this week" action="See all services" onAction={() => navigate('all-services')} /><div className="grid gap-5 md:grid-cols-2">{SERVICES.slice(0, 4).map(service => <ServiceCard key={service.id} service={service} navigate={navigate} />)}</div></div><aside className="rounded-[26px] bg-white p-6 shadow-sm ring-1 ring-[#e5edf8]"><div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-[.14em] text-[#0967ff]">Your next booking</p><h2 className="mt-1 text-xl font-black">Friday, 10:00 AM</h2></div><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-[#0967ff]"><CalendarDays size={20}/></div></div><div className="mt-5 rounded-2xl bg-[#f5f9ff] p-4"><div className="flex items-center gap-3"><img src="/assets/scrubs-leaf-logo-clean.png" alt="" className="h-10 w-10 rounded-xl object-cover"/><div><p className="text-sm font-black">Scrubs Cleaning</p><p className="text-xs font-bold text-[#71809a]">General cleaning · 2 hours</p></div></div><div className="mt-4 flex items-center justify-between border-t border-blue-100 pt-4"><span className="text-xs font-bold text-[#71809a]">West Bay, Doha</span><button onClick={() => navigate('orders')} className="text-xs font-black text-[#0967ff]">View booking</button></div></div><button onClick={() => navigate('all-services')} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-[#dbe8fb] py-3 text-sm font-black text-[#0967ff] transition hover:bg-blue-50"><Plus size={16}/> Book another service</button></aside></section></div>
 }
 
 function BrowseView({ screen, params, navigate }: { screen: Screen; params: any; navigate: (screen: Screen, params?: any) => void }) {
@@ -335,7 +382,7 @@ function BrowseView({ screen, params, navigate }: { screen: Screen; params: any;
   const categoryLabels: Record<string, string> = { home: 'Home services', cleaning: 'Home services', car: 'Car services', salon: 'Salon & spa', laundry: 'Laundry', maintenance: 'Maintenance', digital: 'Digital', education: 'Education', delivery: 'Deliveries', travel: 'Travel', support: 'Support' }
   const activeCategory = screen === 'category-services' ? categoryLabels[params?.id] || params?.label : filter
   const services = useMemo(() => SERVICES.filter(service => (activeCategory === 'All' || service.category === activeCategory) && `${service.name} ${service.provider} ${service.category}`.toLowerCase().includes(search.toLowerCase())), [activeCategory, search])
-  if (screen === 'categories') return <div><PageHeading eyebrow={current.eyebrow} title={current.title} copy={current.copy}/><div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{CATEGORIES.map(category => <button key={category.id} onClick={() => navigate('category-services', { id: category.id, label: category.label })} className="group relative min-h-[215px] overflow-hidden rounded-[25px] bg-white p-6 text-left shadow-sm ring-1 ring-[#e2ebf7] transition hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-100"><div className="absolute right-0 top-0 h-36 w-40 opacity-95"><img src={category.image} alt="" loading="lazy" className="h-full w-full object-contain transition duration-300 group-hover:scale-110"/></div><div className="relative flex h-full flex-col justify-end"><span className="w-fit rounded-full bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[#0967ff]">{category.count}</span><h2 className="mt-3 text-xl font-black">{category.label}</h2><p className="mt-1 text-sm font-semibold text-[#71809a]">Browse trusted specialists <ArrowRight size={14} className="ml-1 inline text-[#0967ff]"/></p></div></button>)}</div></div>
+  if (screen === 'categories') return <div><PageHeading eyebrow={current.eyebrow} title={current.title} copy={current.copy}/><div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{CATEGORIES.map(category => <button key={category.id} onClick={() => navigate('category-services', { id: category.id, label: category.label })} className="group relative min-h-[215px] overflow-hidden rounded-[25px] bg-white p-6 text-left shadow-sm ring-1 ring-[#e2ebf7] transition"><div className="absolute right-0 top-0 h-36 w-40 opacity-95"><img src={category.image} alt="" loading="lazy" className="h-full w-full object-contain transition duration-300"/></div><div className="relative flex h-full flex-col justify-end"><span className="w-fit rounded-full bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-[#0967ff]">{category.count}</span><h2 className="mt-3 text-xl font-black">{category.label}</h2><p className="mt-1 text-sm font-semibold text-[#71809a]">Browse trusted specialists <ArrowRight size={14} className="ml-1 inline text-[#0967ff]"/></p></div></button>)}</div></div>
   return <div><PageHeading eyebrow={current.eyebrow} title={screen === 'category-services' ? `${activeCategory} services` : current.title} copy={current.copy} action={screen === 'deals' ? 'Explore events' : undefined} onAction={() => navigate('offers-events')} /><div className="mt-8 flex flex-col gap-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[#e2ebf7] lg:flex-row lg:items-center"><div className="relative flex-1"><Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8290a9]"/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search by service or provider" className="h-11 w-full rounded-xl bg-[#f5f8fd] pl-10 pr-4 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-100"/></div>{screen !== 'category-services' && <div className="flex max-w-full gap-2 overflow-x-auto">{filters.map(item => <button key={item} onClick={() => setFilter(item)} className={`shrink-0 rounded-xl px-3.5 py-2.5 text-xs font-black transition ${filter === item ? 'bg-[#0967ff] text-white shadow-md shadow-blue-200' : 'bg-[#f5f8fd] text-[#657590] hover:bg-blue-50'}`}>{item}</button>)}</div>}</div>{screen === 'deals' && <div className="mt-6 grid gap-4 md:grid-cols-3"><OfferPanel title="Deep clean, lighter price" text="Save 20% on a fresh-home reset with Scrubs." image="/assets/ai-banner-home-cleaning.jpg" onClick={() => navigate('service-detail', SERVICES[0])}/><OfferPanel title="A little glow goes a long way" text="Beauty day packages from QAR 120." image="/assets/ai-banner-glow-salon.jpg" onClick={() => navigate('service-detail', SERVICES[6])}/><OfferPanel title="Car care, on your schedule" text="Premium washes from QAR 75." image="/assets/ai-banner-sparkle-carwash.jpg" onClick={() => navigate('service-detail', SERVICES[3])}/></div>}<p className="mt-6 text-sm font-bold text-[#75839d]">{services.length} services available</p><div className="mt-4 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{services.map(service => <ServiceCard key={service.id} service={service} navigate={navigate}/>)}</div>{services.length === 0 && <EmptyScreen title="No services matched that search" body="Try another term or clear a filter to see more providers." onClick={() => { setSearch(''); setFilter('All') }} action="Clear filters"/>}</div>
 }
 
@@ -457,7 +504,7 @@ function NotificationsView({ navigate }: { navigate: (screen: Screen, params?: a
 
 function InfoView({ screen, navigate }: { screen: Screen; navigate: (screen: Screen, params?: any) => void }) {
   const helpCards: Array<{ title: string; body: string; Icon: LucideIcon; action: () => void }> = [{ title: 'Message support', body: 'Get help with a booking or account.', Icon: MessageCircle, action: () => navigate('chat-thread', { name: 'Helpy Support' }) }, { title: 'Booking questions', body: 'Find clear answers before you book.', Icon: CalendarDays, action: () => navigate('orders') }, { title: 'Manage your account', body: 'Update details, payment and preferences.', Icon: Settings, action: () => navigate('profile') }]
-  if (screen === 'contact-us') return <div><PageHeading eyebrow="HERE WHEN YOU NEED US" title="Help centre" copy="Tell us what you need—we’ll point you in the right direction."/><div className="mt-8 grid gap-5 md:grid-cols-3">{helpCards.map(({ title, body, Icon, action }) => <button key={title} onClick={action} className="rounded-[24px] bg-white p-6 text-left shadow-sm ring-1 ring-[#e2ebf7] transition hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-100"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-[#0967ff]"><Icon size={22}/></div><h2 className="mt-5 text-lg font-black">{title}</h2><p className="mt-2 text-sm leading-6 text-[#74829b]">{body}</p><span className="mt-5 inline-flex items-center gap-1 text-sm font-black text-[#0967ff]">Get help <ArrowRight size={15}/></span></button>)}</div><div className="mt-7 rounded-[26px] bg-[#071b52] p-7 text-white"><p className="text-xs font-black uppercase tracking-[.14em] text-[#9edbff]">Send us a message</p><div className="mt-5 grid gap-4 md:grid-cols-2"><input placeholder="What can we help with?" className="h-12 rounded-xl bg-white/10 px-4 text-sm font-bold outline-none placeholder:text-blue-200"/><button onClick={() => navigate('chat-thread', { name: 'Helpy Support' })} className="rounded-xl bg-white text-sm font-black text-[#0967ff]">Start a conversation</button></div></div></div>
+  if (screen === 'contact-us') return <div><PageHeading eyebrow="HERE WHEN YOU NEED US" title="Help centre" copy="Tell us what you need—we’ll point you in the right direction."/><div className="mt-8 grid gap-5 md:grid-cols-3">{helpCards.map(({ title, body, Icon, action }) => <button key={title} onClick={action} className="rounded-[24px] bg-white p-6 text-left shadow-sm ring-1 ring-[#e2ebf7] transition"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-[#0967ff]"><Icon size={22}/></div><h2 className="mt-5 text-lg font-black">{title}</h2><p className="mt-2 text-sm leading-6 text-[#74829b]">{body}</p><span className="mt-5 inline-flex items-center gap-1 text-sm font-black text-[#0967ff]">Get help <ArrowRight size={15}/></span></button>)}</div><div className="mt-7 rounded-[26px] bg-[#071b52] p-7 text-white"><p className="text-xs font-black uppercase tracking-[.14em] text-[#9edbff]">Send us a message</p><div className="mt-5 grid gap-4 md:grid-cols-2"><input placeholder="What can we help with?" className="h-12 rounded-xl bg-white/10 px-4 text-sm font-bold outline-none placeholder:text-blue-200"/><button onClick={() => navigate('chat-thread', { name: 'Helpy Support' })} className="rounded-xl bg-white text-sm font-black text-[#0967ff]">Start a conversation</button></div></div></div>
   const title = screen === 'terms' ? 'Terms of service' : 'Privacy, clearly explained'
   const body = screen === 'terms' ? 'These terms explain how Helpy connects customers with independent service providers and how bookings work.' : 'Your information is treated with care. We only use what is needed to deliver a safe, helpful service experience.'
   return <div><PageHeading eyebrow="THE SMALL PRINT, MADE SIMPLE" title={title} copy={body}/><article className="mt-8 rounded-[26px] bg-white p-7 shadow-sm ring-1 ring-[#e2ebf7] sm:p-10"><div className="max-w-3xl space-y-7 text-sm leading-7 text-[#65738c]"><section><h2 className="text-xl font-black text-[#102044]">1. What this means for you</h2><p className="mt-3">Helpy makes it easier to discover, compare and book local services. We work hard to make every interaction clear, secure and useful.</p></section><section><h2 className="text-xl font-black text-[#102044]">2. Your choices</h2><p className="mt-3">You control your bookings, saved payment methods, communications and account information. You can update your preferences at any time.</p></section><section><h2 className="text-xl font-black text-[#102044]">3. A dependable experience</h2><p className="mt-3">We expect providers to meet the quality standards our community deserves. If something feels off, our support team is here to help.</p></section></div></article></div>
@@ -486,12 +533,12 @@ function ServiceCard({ service, navigate }: { service: Service; navigate: (scree
     role="link"
     tabIndex={0}
     aria-label={`View details for ${service.name} by ${service.provider}`}
-    className="group cursor-pointer overflow-hidden rounded-[23px] bg-white shadow-sm ring-1 ring-[#e2ebf7] transition hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
-  ><div className="relative h-44 overflow-hidden"><img src={service.image} alt="" loading="lazy" className="h-full w-full object-cover transition duration-500 group-hover:scale-105"/><div className="absolute inset-0 bg-gradient-to-t from-[#071331]/50 via-transparent to-transparent"/><button onClick={event => { event.stopPropagation(); setSaved(value => !value) }} className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-xl bg-white/90 text-[#102044] shadow-md" aria-label="Save service"><Heart size={17} fill={saved ? '#ff5c7a' : 'none'} className={saved ? 'text-[#ff5c7a]' : ''}/></button><span className="absolute bottom-3 left-3 rounded-lg bg-white/95 px-2.5 py-1 text-[10px] font-black text-[#102044]">{service.category}</span></div><div className="p-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-lg font-black">{service.name}</p><p className="mt-1 truncate text-sm font-bold text-[#77859d]">{service.provider}</p></div><span className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-black text-amber-600"><Star size={12} fill="currentColor"/>{service.rating}</span></div><div className="mt-5 flex items-center justify-between"><p className="text-sm font-black text-[#0967ff]">from QAR {service.price}</p><span className="rounded-xl bg-[#0967ff] px-3.5 py-2.5 text-xs font-black text-white transition group-hover:bg-[#0759df]">View details</span></div></div></article>
+    className="group cursor-pointer overflow-hidden rounded-[23px] bg-white shadow-sm ring-1 ring-[#e2ebf7] transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
+  ><div className="relative h-44 overflow-hidden"><img src={service.image} alt="" loading="lazy" className="h-full w-full object-cover transition duration-500"/><div className="absolute inset-0 bg-gradient-to-t from-[#071331]/50 via-transparent to-transparent"/><button onClick={event => { event.stopPropagation(); setSaved(value => !value) }} className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-xl bg-white/90 text-[#102044] shadow-md" aria-label="Save service"><Heart size={17} fill={saved ? '#ff5c7a' : 'none'} className={saved ? 'text-[#ff5c7a]' : ''}/></button><span className="absolute bottom-3 left-3 rounded-lg bg-white/95 px-2.5 py-1 text-[10px] font-black text-[#102044]">{service.category}</span></div><div className="p-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-lg font-black">{service.name}</p><p className="mt-1 truncate text-sm font-bold text-[#77859d]">{service.provider}</p></div><span className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-black text-amber-600"><Star size={12} fill="currentColor"/>{service.rating}</span></div><div className="mt-5 flex items-center justify-between"><p className="text-sm font-black text-[#0967ff]">from QAR {service.price}</p><span className="rounded-xl bg-[#0967ff] px-3.5 py-2.5 text-xs font-black text-white transition group-hover:bg-[#0759df]">View details</span></div></div></article>
 }
 
 function OfferPanel({ title, text, image, onClick }: { title: string; text: string; image: string; onClick: () => void }) {
-  return <button onClick={onClick} className="group relative min-h-[170px] overflow-hidden rounded-[22px] text-left shadow-sm"><img src={image} alt="" className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-105"/><div className="absolute inset-0 bg-gradient-to-r from-[#071b52]/90 via-[#071b52]/55 to-transparent"/><div className="relative max-w-[210px] p-5 text-white"><span className="rounded-full bg-[#dfff2d] px-2 py-1 text-[10px] font-black text-[#253600]">LIMITED OFFER</span><p className="mt-4 text-lg font-black leading-5">{title}</p><p className="mt-2 text-xs leading-5 font-semibold text-blue-100">{text}</p></div></button>
+  return <button onClick={onClick} className="group relative min-h-[170px] overflow-hidden rounded-[22px] text-left shadow-sm"><img src={image} alt="" className="absolute inset-0 h-full w-full object-cover transition duration-500"/><div className="absolute inset-0 bg-gradient-to-r from-[#071b52]/90 via-[#071b52]/55 to-transparent"/><div className="relative max-w-[210px] p-5 text-white"><span className="rounded-full bg-[#dfff2d] px-2 py-1 text-[10px] font-black text-[#253600]">LIMITED OFFER</span><p className="mt-4 text-lg font-black leading-5">{title}</p><p className="mt-2 text-xs leading-5 font-semibold text-blue-100">{text}</p></div></button>
 }
 
 function DetailCheck({ title, text }: { title: string; text: string }) { return <div className="rounded-2xl bg-[#f6f9fe] p-4"><CheckCircle2 size={19} className="text-[#0967ff]"/><p className="mt-3 text-sm font-black">{title}</p><p className="mt-1 text-xs leading-5 font-semibold text-[#78869e]">{text}</p></div> }

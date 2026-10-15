@@ -1,8 +1,20 @@
-# Helpy APK backend integration audit
+# Helpy Laravel backend integration audit
 
 ## Outcome
 
-The APK and website can use the same production API at `https://admin.helpyapp.tech/api/v1`. Live traffic from an isolated diagnostic build confirmed guest bootstrap, email OTP login, catalog, provider, review, policy, account, booking-list, wallet, favourites, address-list, and region/city contracts. Browser preflight from the local website origin also succeeds for the APK's custom headers.
+The authoritative contract is the supplied Laravel checkout at `/Users/mo/Downloads/helpy-backend-abdullah`; production reads are supporting evidence only. Web and mobile use `https://admin.helpyapp.tech/api/v1` by default.
+
+## 2026-10-04 repair status
+
+- Availability now exposes `isAvailable=1` only for future, conflict-free slots and a separate `isBooked` flag.
+- Notifications use `notification_history_id`; booking detail uses `GET` and its returned array/nested `booking_items`.
+- Category images use the supported `64_64` size.
+- Address fields, numeric Home/Work/Other labels, coordinates, add/update upsert, and delete now match Laravel.
+- Wallet/profile nesting is corrected and `about_me` is persisted.
+- Service results expose `review_count`, and grouped totals count the grouped result.
+- Web/mobile chat exchange the custom token already returned by login and refresh Firebase sessions. A public Firebase client API key is still required at build time.
+- Mobile now has live bookings/details, notifications, profile, saved locations, global search, availability, and preflight review.
+- `/add-booking` and payment writes remain disabled until a sandbox payment path is approved. Favourites remain local-only by product decision.
 
 The website now has an opt-in typed client in `src/api/helpy.ts`. The mobile and desktop sign-in screens use the verified email OTP contract when the API flag is enabled, retain session authentication across refreshes, and fall back to the existing demo flow when disabled. Enable it with the values shown in `.env.example`.
 

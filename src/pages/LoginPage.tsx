@@ -3,7 +3,6 @@ import { Mail } from 'lucide-react'
 import { useNav } from '../context/NavContext'
 import { StatusBar, HelpyLogo } from '../components/shared'
 import { requestLoginOtp } from '../api/auth'
-import { helpyApiEnabled } from '../api/helpy'
 
 export default function LoginPage() {
   const { navigate } = useNav()
@@ -49,7 +48,6 @@ export default function LoginPage() {
         <p className="mt-3 mb-4 text-[13px] font-semibold leading-5 text-[#68758b]">We’ll send a secure 6-digit verification code to your email.</p>
         {error && <p role="alert" className="mb-3 text-[13px] font-bold text-red-500">{error}</p>}
         <button onClick={submit} disabled={loading} className="w-full h-[52px] rounded-[17px] bg-gradient-to-r from-[#0679ff] to-[#0059d9] text-white text-[16px] font-black shadow-[0_14px_28px_rgba(0,96,222,0.22)] disabled:cursor-wait disabled:opacity-70">{loading ? 'Sending code…' : 'Sign In'}</button>
-        {!helpyApiEnabled && <p className="mt-3 text-center text-[11px] font-semibold text-[#7a8394]">Demo mode uses verification code 123456.</p>}
       </div>
     </div>
   )

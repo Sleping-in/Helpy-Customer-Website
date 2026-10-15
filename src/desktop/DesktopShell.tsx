@@ -275,7 +275,7 @@ export function EmptyState({ icon: Icon = Sparkles, title, description, action, 
       {(action || secondaryAction) && (
         <div className="mt-6 flex flex-wrap justify-center gap-2.5">
           {action && (
-            <button type="button" onClick={action.onClick} className="inline-flex items-center gap-2 rounded-xl bg-[#1466e8] px-4 py-2.5 text-sm font-extrabold text-white shadow-[0_10px_22px_rgba(20,102,232,.22)] transition hover:-translate-y-0.5 hover:bg-[#075bd6] focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200">
+            <button type="button" onClick={action.onClick} className="inline-flex items-center gap-2 rounded-xl bg-[#1466e8] px-4 py-2.5 text-sm font-extrabold text-white shadow-[0_10px_22px_rgba(20,102,232,.22)] transition hover:bg-[#075bd6] focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200">
               {action.label} <ActionIcon size={16} strokeWidth={2.5} />
             </button>
           )}
@@ -343,7 +343,7 @@ export function DesktopShell({
       <header className="sticky top-0 z-50 border-b border-slate-200/75 bg-white/90 backdrop-blur-xl">
         <div className="mx-auto flex h-[74px] max-w-[1680px] items-center gap-3 px-4 sm:px-6 lg:px-8">
           <button type="button" onClick={() => navigate('home')} className="group flex shrink-0 items-center gap-2.5 rounded-xl pr-2 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100" aria-label="Go to Helpy home">
-            <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[15px] bg-[#eaf2ff] shadow-sm ring-1 ring-blue-100 transition group-hover:-rotate-3 group-hover:scale-105">
+            <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[15px] bg-[#eaf2ff] shadow-sm ring-1 ring-blue-100 transition">
               <img src="/assets/helpy-logo-transparent.png" alt="" className="h-8 w-8 object-contain" />
             </span>
             <span className="hidden text-[22px] font-black tracking-[-.075em] text-[#101b3b] sm:block">helpy</span>

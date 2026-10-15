@@ -50,9 +50,10 @@ Verified contracts and response shapes are in [BACKEND_INTEGRATION_AUDIT.md](BAC
 | `/get-state` | Implemented and verified |
 | `/get-city` | Implemented and verified |
 | `/get-addresses` | Implemented and verified; user token required |
-| `/store-address` | Implemented; mutation payload needs staging verification |
+| `/store-address` | Implemented from Laravel validation; add/update upsert via `user_address_id` |
+| `/delete-address/{id}` | Implemented from Laravel route and authenticated ownership check |
 
-No separate address update/delete routes were found.
+The backend uses `/store-address` for both add and update, and exposes `DELETE /delete-address/{id}`.
 
 ## Bookings
 

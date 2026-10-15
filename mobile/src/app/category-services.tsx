@@ -1,0 +1,15 @@
+import { router, useLocalSearchParams } from 'expo-router'
+import { useEffect, useState } from 'react'
+import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
+import { loadCategoryServices, type HomeService } from '../lib/helpy-api'
+
+export default function CategoryServicesScreen() {
+  const params = useLocalSearchParams<{ categoryId?: string; label?: string }>()
+  const [services, setServices] = useState<HomeService[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => { void loadCategoryServices(Number(params.categoryId)).then(setServices).finally(() => setLoading(false)) }, [params.categoryId])
+  return <SafeAreaView style={styles.safe}><View style={styles.header}><Pressable accessibilityRole="button" accessibilityLabel="Go Back" onPress={() => router.back()}><Text style={styles.back}>‹ Back</Text></Pressable><Text numberOfLines={1} style={styles.title}>{params.label || 'Services'}</Text></View>{loading ? <View style={styles.state}><ActivityIndicator color="#0967ff" /></View> : <FlatList contentContainerStyle={styles.list} data={services} keyExtractor={item => item.id} ListEmptyComponent={<Text style={styles.empty}>No services are currently published in this category.</Text>} renderItem={({ item }) => <Pressable onPress={() => router.push({ pathname: '/service-detail', params: { serviceVendorMapId: String(item.serviceVendorMapId), name: item.name, provider: item.provider } })} style={styles.card}>{item.image ? <Image source={{ uri: item.image }} style={styles.image} resizeMode="cover" /> : <View style={styles.imageFallback} />}<View style={styles.cardCopy}><Text style={styles.provider}>{item.provider}</Text><Text numberOfLines={2} style={styles.name}>{item.name}</Text><Text style={styles.price}>{item.price > 0 ? `QAR ${item.price.toFixed(2)}` : 'Price on Request'}</Text></View><Text style={styles.arrow}>›</Text></Pressable>} />}</SafeAreaView>
+}
+
+const styles = StyleSheet.create({ safe: { backgroundColor: '#f4f8ff', flex: 1 }, header: { borderBottomColor: '#dfeaf7', borderBottomWidth: 1, padding: 20 }, back: { color: '#0967ff', fontSize: 15, fontWeight: '800' }, title: { color: '#102044', fontSize: 28, fontWeight: '900', marginTop: 16 }, list: { gap: 12, padding: 20 }, card: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#dfeaf7', borderRadius: 19, borderWidth: 1, flexDirection: 'row', overflow: 'hidden', padding: 12 }, image: { backgroundColor: '#edf5ff', borderRadius: 14, height: 92, width: 92 }, imageFallback: { backgroundColor: '#edf5ff', borderRadius: 14, height: 92, width: 92 }, cardCopy: { flex: 1, marginLeft: 13 }, provider: { color: '#0967ff', fontSize: 12, fontWeight: '800' }, name: { color: '#102044', fontSize: 17, fontWeight: '800', marginTop: 5 }, price: { color: '#6d7c96', fontSize: 13, fontWeight: '700', marginTop: 8 }, arrow: { color: '#0967ff', fontSize: 28, marginLeft: 12 }, state: { alignItems: 'center', paddingTop: 140 }, empty: { color: '#6d7c96', fontSize: 15, lineHeight: 22, paddingTop: 70, textAlign: 'center' } })

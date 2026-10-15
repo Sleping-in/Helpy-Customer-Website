@@ -212,13 +212,13 @@ function AddressDetailsPage({ initial, isEditing, onBack, onSave }: { initial: t
   }
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden bg-[#f3f8ff]">
+    <div className="relative min-h-0 flex-1 overflow-y-auto bg-[#f3f8ff] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <StatusBar />
-      <div className="shrink-0 border-b border-[#e2ebf5] bg-white px-4 pb-4">
+      <div className="border-b border-[#e2ebf5] bg-white px-4 pb-4">
         <header className="flex items-center gap-3 pb-3 pt-1">
           <button onClick={onBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] border border-[#e0e9f3] bg-[#f6f9fd] text-[#26334a] active:bg-[#edf3fa]" aria-label="Back to map"><ArrowLeft size={19} /></button>
           <div className="min-w-0 flex-1">
-            <p className="text-[18px] font-black tracking-[-0.25px] text-[#11182d]">{isEditing ? 'Update this place' : 'Set up this place'}</p>
+            <p className="text-[18px] font-black tracking-[-0.25px] text-[#11182d]">{isEditing ? 'Update this place' : 'Set Location Address'}</p>
             <p className="mt-0.5 text-[10px] font-semibold text-[#8490a3]">Save it once and book services faster</p>
           </div>
           <span className="shrink-0 rounded-full bg-[#edf5ff] px-2.5 py-1.5 text-[9px] font-black text-[#0967ff]">Step 2 of 2</span>
@@ -239,7 +239,7 @@ function AddressDetailsPage({ initial, isEditing, onBack, onSave }: { initial: t
         </div>
       </div>
 
-      <main className="relative z-10 min-h-0 flex-1 overflow-y-auto px-4 pb-5 pt-4">
+      <main className="relative z-10 px-4 pb-5 pt-4">
         <section>
           <SectionTitle title="Name this place" subtitle="Create a shortcut for future bookings" />
           <div className="mt-2.5 rounded-[22px] border border-[#dfe9f4] bg-white p-3.5 shadow-[0_8px_22px_rgba(35,71,113,0.06)]">
@@ -266,8 +266,8 @@ function AddressDetailsPage({ initial, isEditing, onBack, onSave }: { initial: t
           <SectionTitle title="Help providers reach you" subtitle="Only the practical details they need on arrival" />
           <div className="mt-2.5 rounded-[22px] border border-[#dfe9f4] bg-white p-3.5 shadow-[0_8px_22px_rgba(35,71,113,0.06)]">
             <div className="grid grid-cols-2 gap-2.5">
-              <CompactInput label="Building / villa" value={buildingNumber} onChange={setBuildingNumber} placeholder="e.g. 18" />
-              <CompactInput label="Floor / unit" value={doorNumber} onChange={setDoorNumber} placeholder="e.g. 1204" />
+              <CompactInput label="Building Number" value={buildingNumber} onChange={setBuildingNumber} placeholder="e.g. 18" />
+              <CompactInput label="Door number" value={doorNumber} onChange={setDoorNumber} placeholder="e.g. 1204" />
             </div>
             <label className="mt-3 block">
               <span className="mb-1.5 block text-[9px] font-black uppercase tracking-[0.08em] text-[#7a879b]">Access note</span>
@@ -299,7 +299,7 @@ function AddressDetailsPage({ initial, isEditing, onBack, onSave }: { initial: t
         </section>
       </main>
 
-      <footer className="relative z-20 shrink-0 border-t border-[#dfe9f4] bg-white/95 px-4 pb-[max(14px,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
+      <footer className="relative z-20 border-t border-[#dfe9f4] bg-white/95 px-4 pb-[max(14px,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
         <button onClick={handleSave} disabled={!data.label.trim() || !data.address.trim()} className="flex w-full items-center justify-center gap-2 rounded-[18px] bg-[#0967ff] py-3.5 text-[14px] font-black text-white shadow-[0_10px_22px_rgba(9,103,255,0.24)] active:scale-[0.99] disabled:opacity-40">{isEditing ? 'Save changes' : 'Save address'} <Check size={17} strokeWidth={3} /></button>
       </footer>
     </div>

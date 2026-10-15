@@ -1,8 +1,9 @@
 const DEFAULT_API_BASE = 'https://admin.helpyapp.tech/api/v1'
 const TOKEN_KEY = 'helpy_session_token'
 const SESSION_KIND_KEY = 'helpy_session_kind'
+const FIREBASE_CUSTOM_TOKEN_KEY = 'helpy_firebase_custom_token'
 
-type RequestMethod = 'GET' | 'POST'
+type RequestMethod = 'GET' | 'POST' | 'DELETE'
 type QueryValue = string | number | boolean | null | undefined
 
 export type HelpyEnvelope<T> = {
@@ -85,6 +86,50 @@ export type HelpyAvailabilitySlot = {
   isAvailable: boolean | number
 }
 
+export type HelpyAddressInput = {
+  id?: string
+  isDefault?: boolean
+  addressType?: 1 | 2 | 3
+  title: string
+  address: string
+  countryId?: number
+  stateId: number
+  cityId: number
+  buildingNumber?: string
+  zone?: string
+  street?: string
+  floor?: string
+  apartment?: string
+  landmark?: string
+  latitude?: number
+  longitude?: number
+  notes?: string
+}
+
+export type HelpyCatalogFilters = {
+  categoryId?: number
+  serviceId?: number
+  minPrice?: number
+  maxPrice?: number
+  distance?: number
+  sortBy?: 'recently_added' | 'price_low_high' | 'price_high_low'
+  page?: number
+  limit?: number
+}
+
+export type HelpyPreflight = {
+  wallet_balance: string
+  final_price: string
+  wallet_cover_amount: string
+  shortage_amount: string
+  can_wallet_fully_cover: number
+  can_proceed: number
+  payment_type: string
+  next_step: string
+}
+
+export type HelpyPromo = { promo_code_id: number; promo_code: string; discount_percentage: number | string }
+
 export class HelpyApiError extends Error {
   constructor(
     message: string,
@@ -98,8 +143,6 @@ export class HelpyApiError extends Error {
 
 const runtimeEnv = import.meta.env as Record<string, string | boolean | undefined>
 
-export const helpyApiEnabled = runtimeEnv.VITE_HELPY_API_ENABLED === 'true'
-
 function readToken() {
   if (typeof window === 'undefined') return null
   return window.sessionStorage.getItem(TOKEN_KEY)
@@ -107,6 +150,15 @@ function readToken() {
 
 export function getHelpyAccessToken() {
   return readToken()
+}
+
+export function getHelpyFirebaseCustomToken() {
+  if (typeof window === 'undefined') return null
+  return window.sessionStorage.getItem(FIREBASE_CUSTOM_TOKEN_KEY)
+}
+
+export function clearHelpyFirebaseCustomToken() {
+  if (typeof window !== 'undefined') window.sessionStorage.removeItem(FIREBASE_CUSTOM_TOKEN_KEY)
 }
 
 export function hasHelpySession() {
@@ -121,6 +173,12 @@ function writeToken(token: string, kind: 'guest' | 'user') {
   if (typeof window !== 'undefined') {
     window.sessionStorage.setItem(TOKEN_KEY, token)
     window.sessionStorage.setItem(SESSION_KIND_KEY, kind)
+  }
+}
+
+function writeFirebaseCustomToken(value: unknown) {
+  if (typeof window !== 'undefined' && typeof value === 'string' && value.trim()) {
+    window.sessionStorage.setItem(FIREBASE_CUSTOM_TOKEN_KEY, value)
   }
 }
 
@@ -185,6 +243,10 @@ class HelpyApiClient {
 
     const payload = await response.json().catch(() => null) as HelpyEnvelope<T> | null
     if (!response.ok || !payload?.status) {
+      if ((response.status === 401 || payload?.code === 401) && hasHelpyUserSession()) {
+        this.clearSession()
+        window.dispatchEvent(new Event('helpy:session-expired'))
+      }
       throw new HelpyApiError(payload?.message || `Helpy API request failed (${response.status})`, response.status, payload)
     }
     return payload
@@ -210,6 +272,8 @@ class HelpyApiClient {
     if (typeof window !== 'undefined') {
       window.sessionStorage.removeItem(TOKEN_KEY)
       window.sessionStorage.removeItem(SESSION_KIND_KEY)
+      window.sessionStorage.removeItem(FIREBASE_CUSTOM_TOKEN_KEY)
+      window.sessionStorage.removeItem('helpy_firebase_session')
     }
   }
 
@@ -228,6 +292,26 @@ class HelpyApiClient {
         type: 'login',
       },
     })).data
+  }
+
+  async sendRegistrationOtp(input: { email: string; phoneNumber: string }) {
+    return (await this.request<unknown>('otp-send', {
+      method: 'POST',
+      multipart: { email: input.email, phone_number: input.phoneNumber, user_type: 'user', otp_type: 'email', type: 'register' },
+    })).data
+  }
+
+  async registerWithOtp(input: { name: string; email: string; phoneNumber: string; code: string }) {
+    const response = await this.request<Record<string, unknown>>('user-register', {
+      method: 'POST',
+      multipart: { name: input.name, email: input.email, phone_number: input.phoneNumber, otp_code: input.code, otp_type: 'email' },
+      authenticated: false,
+    })
+    if (!response.token) throw new HelpyApiError('Registration response did not include a session token', 200, response)
+    writeToken(response.token, 'user')
+    clearHelpyFirebaseCustomToken()
+    writeFirebaseCustomToken(response.data.firebaseToken)
+    return response.data
   }
 
   async loginWithOtp(input: {
@@ -252,6 +336,9 @@ class HelpyApiClient {
     })
     if (!response.token) throw new HelpyApiError('Login response did not include a token', 200, response)
     writeToken(response.token, 'user')
+    clearHelpyFirebaseCustomToken()
+    window.sessionStorage.removeItem('helpy_firebase_session')
+    writeFirebaseCustomToken(response.data.firebaseToken)
     return response.data
   }
 
@@ -263,7 +350,7 @@ class HelpyApiClient {
     return (await this.request<HelpyBanner[]>('get-banner-list')).data
   }
 
-  async getCategories(categoryImageSize = '64_65') {
+  async getCategories(categoryImageSize = '64_64') {
     return (await this.request<HelpyCategory[]>('get-category-list', { query: { categoryImageSize } })).data
   }
 
@@ -277,10 +364,24 @@ class HelpyApiClient {
     })).data
   }
 
-  async getServices(categoryId: number, page = 1, limit = 100) {
-    const values = { page, category_id: categoryId, service_id: 0, sort_by: 'recently_added', limit }
+  async getServices(categoryId: number, page = 1, limit = 100, filters: HelpyCatalogFilters = {}, coordinates?: { latitude: number; longitude: number }) {
+    const values = {
+      page, category_id: categoryId, service_id: filters.serviceId ?? 0,
+      sort_by: filters.sortBy ?? 'recently_added', limit,
+      min_price: filters.minPrice, max_price: filters.maxPrice, distance: filters.distance,
+    }
     return (await this.request<Paginated<HelpyService>>('featured-services-List', {
-      method: 'POST', query: values, form: values,
+      method: 'POST', query: values, form: values, coordinates,
+    })).data
+  }
+
+  async getServiceTypes(categoryId: number) {
+    return (await this.request<Array<Record<string, unknown>>>('get-services-list', { query: { category_id: categoryId } })).data
+  }
+
+  async searchServices(search: string, coordinates?: { latitude: number; longitude: number }) {
+    return (await this.request<HelpyService[]>('global-search', {
+      method: 'POST', form: { search }, coordinates,
     })).data
   }
 
@@ -296,6 +397,13 @@ class HelpyApiClient {
     })).data
   }
 
+  async getReviewsPage(serviceVendorMapId: number, rating = 0, page = 1) {
+    return (await this.request<Paginated<Record<string, unknown>>>('get-reviews-list', {
+      method: 'POST',
+      form: { service_vendor_mapp_id: serviceVendorMapId, rating, page, revieImageSize: '100_100', userImageSize: '100_100' },
+    })).data
+  }
+
   async getVendorServices(vendorId: number, categoryId: number) {
     const values = { vendor_id: vendorId, category_id: categoryId }
     return (await this.request<HelpyService[]>('vendor-service-offered', {
@@ -303,10 +411,32 @@ class HelpyApiClient {
     })).data
   }
 
-  async getVendorAvailability(vendorId: number, date: string) {
+  async getVendorAvailability(vendorId: number, date: string, serviceVendorMapId?: number) {
     return (await this.request<HelpyAvailabilitySlot[]>('vendor-availability', {
-      method: 'POST', form: { vendor_id: vendorId, date },
+      method: 'POST', form: { vendor_id: vendorId, date, service_vendor_mapp_id: serviceVendorMapId },
     })).data
+  }
+
+  async checkSlotAvailability(input: { vendorId: number; serviceVendorMapId: number; date: string; startTime: string }) {
+    return (await this.request<unknown>('slot-availability', {
+      method: 'POST', form: { vendor_id: input.vendorId, service_vendor_mapp_id: input.serviceVendorMapId, date: input.date, start_time: input.startTime },
+    })).data
+  }
+
+  async bookingPreflight(finalPrice: number, paymentType = '') {
+    return (await this.request<HelpyPreflight>('booking-preflight', {
+      method: 'POST', form: { final_price: finalPrice, payment_type: paymentType },
+    })).data
+  }
+
+  async validatePromoCode(promocode: string, serviceVendorMapId: number) {
+    return (await this.request<HelpyPromo>('validate-promocode', {
+      method: 'POST', form: { promocode, service_vendor_mapp_id: serviceVendorMapId },
+    })).data
+  }
+
+  async checkCashAvailable(vendorId: number) {
+    return (await this.request<{ isCashEnabled: boolean }>('check-COD-available', { query: { vendor_id: vendorId } })).data
   }
 
   async getStates() {
@@ -321,6 +451,13 @@ class HelpyApiClient {
     return (await this.request<Record<string, string>>('policy')).data
   }
 
+  async sendContactMessage(input: { name: string; email: string; phoneNumber?: string; message: string }) {
+    return (await this.request<unknown>('contact-us', {
+      method: 'POST',
+      multipart: { name: input.name, email: input.email, phone_number: input.phoneNumber, message: input.message },
+    })).data
+  }
+
   async getUserProfile() {
     return (await this.request<Record<string, unknown>>('get-user-profile')).data
   }
@@ -330,7 +467,7 @@ class HelpyApiClient {
   }
 
   async markNotificationRead(notificationId: string | number) {
-    return (await this.request<unknown>('notification-mark-as-read', { method: 'POST', form: { notification_id: notificationId } })).data
+    return (await this.request<unknown>('notification-mark-as-read', { method: 'POST', form: { notification_history_id: notificationId } })).data
   }
 
   async markAllNotificationsRead() {
@@ -341,15 +478,15 @@ class HelpyApiClient {
     return (await this.request<{ count: number }>('unseen-order-count')).data
   }
 
-  async getBookings(status: 0 | 1 | 2) {
+  async getBookings(status?: 0 | 1 | 2 | 3 | 4 | 5) {
     return (await this.request<unknown[]>('booking-list', {
-      query: { status, serviceSetupImageSize: '375_240', userImageSize: '100_100' },
+      query: { ...(status === undefined ? {} : { status }), serviceSetupImageSize: '375_240', userImageSize: '100_100' },
     })).data
   }
 
   async getBookingDetails(bookingId: string | number) {
-    return (await this.request<Record<string, unknown>>('get-booking-details', {
-      method: 'POST', form: { booking_id: bookingId },
+    return (await this.request<Record<string, unknown>[]>('get-booking-details', {
+      query: { booking_id: bookingId, serviceSetupImageSize: '375_240', userImageSize: '100_100' },
     })).data
   }
 
@@ -367,12 +504,19 @@ class HelpyApiClient {
     })).data
   }
 
+  async toggleFavorite(input: { serviceVendorMapId: number; providerId: number; userId: number }) {
+    return (await this.request<unknown>('favorites-add-remove', {
+      method: 'POST',
+      form: { service_vendor_mapp_id: input.serviceVendorMapId, provider_id: input.providerId, user_id: input.userId },
+    })).data
+  }
+
   async updateUserProfile(input: { name: string; email: string; phoneNumber: string; aboutMe?: string }) {
     return (await this.request<Record<string, unknown>>('update-user-profile', {
       method: 'POST',
       multipart: {
         name: input.name,
-        name_en: input.name,
+        name_ar: '',
         email: input.email,
         phone_number: input.phoneNumber,
         about_me: input.aboutMe || '',
@@ -380,30 +524,35 @@ class HelpyApiClient {
     })).data
   }
 
-  async storeAddress(input: {
-    title: string
-    address: string
-    stateId: number
-    cityId: number
-    latitude?: number
-    longitude?: number
-    notes?: string
-  }) {
+  async storeAddress(input: HelpyAddressInput) {
+    const addressType = input.addressType ?? (/^home$/i.test(input.title.trim()) ? 1 : /^(work|office)$/i.test(input.title.trim()) ? 2 : 3)
     return (await this.request<Record<string, unknown>>('store-address', {
       method: 'POST',
       multipart: {
-        title: input.title,
+        user_address_id: input.id,
+        address_type: addressType,
         address: input.address,
-        address_en: input.address,
-        address_ar: input.address,
+        address_ar: '',
+        country_id: input.countryId ?? 179,
         state_id: input.stateId,
         city_id: input.cityId,
-        latitude: input.latitude ?? 25.2854,
-        longitude: input.longitude ?? 51.5310,
-        notes: input.notes || '',
-        is_default: 0,
+        flat_or_building: input.buildingNumber,
+        flat_or_building_ar: '',
+        postal_code: input.zone,
+        locality_or_street: input.street,
+        locality_or_street_ar: '',
+        landmark: input.landmark || '',
+        landmark_ar: '',
+        latitude: input.latitude,
+        latitute: input.latitude,
+        longitude: input.longitude,
+        is_default: input.isDefault ? 1 : 0,
       },
     })).data
+  }
+
+  async deleteAddress(id: string) {
+    return (await this.request<unknown>(`delete-address/${encodeURIComponent(id)}`, { method: 'DELETE' })).data
   }
 }
 
